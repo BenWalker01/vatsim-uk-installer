@@ -10,7 +10,7 @@
 | 4 | Each release ships `uk_controller_pack_<tag>.zip` (full) and `changes_only_<tag>.zip` (diff vs previous release); updating applies every release after the installed one, oldest first | Verified against the 2026_10 release. `updater::plan` does this. |
 | 5 | No installed version, or an installed tag not in the release list, triggers a full install of the latest release | Safe fallback; no patches needed since the full zip is current. |
 | 6 | Installer state stored in `%APPDATA%\vatsim-uk-installer\state.json` | Tracks installed pack version and paths. |
-| 7 | Pack releases come from the GitHub releases API (assets expose a `sha256:` digest used for verification); EuroScope/VC++ info needs its own source | Avoids maintaining a separate pack manifest. |
+| 7 | Pack releases come from the GitHub releases API (assets expose a `sha256:` digest used for verification); EuroScope uses the official 3.2.3.2 MSI URL and VC++ uses Microsoft's download URL | Avoids maintaining a separate pack manifest. |
 | 8 | VC++ check targets the x86 2015-2022 runtime (registry) | EuroScope is 32-bit. |
 
 | 9 | EuroScope must be an exact version (`required_version`), not a minimum | Newer releases are less stable; both older and newer versions are flagged. |
@@ -22,10 +22,10 @@
 
 ## Open questions
 
-1. **EuroScope/VC++ source:** pack data comes from GitHub; where do the required EuroScope version and download URLs live (hard-coded, small JSON in the repo, web server)?
+1. **EuroScope/VC++ source:** EuroScope version and download URL and the VC++ download URL are currently hard-coded; decide whether to move them into a small JSON manifest or web server.
 2. **Deleted files:** `changes_only_*.zip` does not list deletions (can be added to the release workflow if needed). Until then removed files linger after an update; decide whether to add a deletions list (e.g. `deleted.txt` in the zip).
 3. **Local edits:** how do we treat user-modified files in the pack (overwrite, back up, or skip)? This matters for the later configuration work.
-4. **EuroScope version policy:** required exact version is `3.2.3.2` (hard-coded in `Manifest::fetch`). Should a mismatched install block progress or only warn, and do we offer to downgrade (uninstall/replace) a newer one? Where does the download URL come from?
+4. **EuroScope version policy:** required exact version is `3.2.3.2` (hard-coded in `Manifest::fetch`). Should a mismatched install block progress or only warn, and do we offer to downgrade (uninstall/replace) a newer one?
 5. **EuroScope install location:** do we support non-default install paths (user picker), and how do we find the sector files folder?
 6. **Elevation:** the VC++ redist needs admin. Should the installer always run elevated, or elevate only for that step?
 7. **Installer self-update:** should the installer check for its own new versions on startup (as VSEDI does)?

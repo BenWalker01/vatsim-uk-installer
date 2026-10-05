@@ -1,6 +1,17 @@
 //! EuroScope detection, version check and install.
 
-use std::path::PathBuf;
+use std::{
+    fs::{self, OpenOptions},
+    io::{Read, Write},
+    path::PathBuf,
+    process::Command,
+    sync::atomic::{AtomicU64, Ordering},
+};
+
+use crate::download::{self, Shared};
+
+pub const SETUP_GUIDE_URL: &str =
+    "https://docs.vatsim.uk/General/Use%20of%20Software/EuroScope%20Setup%20Guide/";
 
 #[derive(Debug, Clone)]
 pub struct Detected {
@@ -80,9 +91,68 @@ pub fn is_required_version(found: &str, required: &str) -> bool {
     a == b
 }
 
-/// TODO: download installer from the manifest and run it, reporting progress.
-pub fn install(_url: &str) -> anyhow::Result<()> {
-    anyhow::bail!("EuroScope install not implemented")
+/// Download the MSI and run it with the interactive Windows Installer UI.
+pub fn install(url: &str, shared: &Shared) -> anyhow::Result<()> {
+    download::set_message(shared, "Downloading EuroScope installer");
+    let response = download::agent().get(url).call()?;
+    if !response.status().is_success() {
+        anyhow::bail!("download failed: HTTP {} for {url}", response.status());
+    }
+
+    let total = response
+        .headers()
+        .get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+    shared.lock().unwrap().total = total;
+
+    let (path, mut file) = create_temp_installer()?;
+    let _cleanup = TempInstaller(path.clone());
+    let mut reader = response.into_body().into_reader();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let n = reader.read(&mut buffer)?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buffer[..n])?;
+        shared.lock().unwrap().done += n as u64;
+    }
+    file.flush()?;
+    drop(file);
+
+    download::set_message(shared, "Running EuroScope installer");
+    let status = Command::new("msiexec.exe").arg("/i").arg(&path).status()?;
+    if !status.success() {
+        anyhow::bail!("EuroScope installer exited with {status}");
+    }
+    Ok(())
+}
+
+struct TempInstaller(PathBuf);
+
+impl Drop for TempInstaller {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+fn create_temp_installer() -> anyhow::Result<(PathBuf, std::fs::File)> {
+    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+    let dir = std::env::temp_dir();
+    for _ in 0..100 {
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let path = dir.join(format!(
+            "vatsim-uk-euroscope-{}-{id}.msi",
+            std::process::id()
+        ));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    anyhow::bail!("could not create a temporary EuroScope installer file")
 }
 
 #[cfg(test)]

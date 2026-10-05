@@ -96,17 +96,26 @@ impl App {
             }
             None => {
                 ui.colored_label(egui::Color32::LIGHT_RED, "EuroScope was not found.");
-                if ui.button("Install EuroScope").clicked() {
-                    self.status = match self.manifest.as_ref() {
-                        Some(m) => euroscope::install(&m.euroscope.download_url)
-                            .err()
-                            .map(|e| e.to_string())
-                            .unwrap_or_default(),
-                        None => "Manifest unavailable".into(),
-                    };
+                ui.label("For a fresh install, follow the EuroScope setup guide.");
+                ui.hyperlink_to("Open the EuroScope Setup Guide", euroscope::SETUP_GUIDE_URL);
+                if ui
+                    .add_enabled(self.job.is_none(), egui::Button::new("Install EuroScope"))
+                    .clicked()
+                {
+                    if let Some(m) = &self.manifest {
+                        let url = m.euroscope.download_url.clone();
+                        let shared = download::Shared::default();
+                        let worker = shared.clone();
+                        let handle = std::thread::spawn(move || euroscope::install(&url, &worker));
+                        self.job = Some(Job { shared, handle });
+                        self.status.clear();
+                    } else {
+                        self.status = "Manifest unavailable".into();
+                    }
                 }
             }
         }
+        self.progress_ui(ui);
         if ui.button("Re-check").clicked() {
             self.euroscope = euroscope::detect();
         }
@@ -172,6 +181,7 @@ impl App {
                 Err(_) => "Worker thread panicked".into(),
             };
             self.reload_state();
+            self.euroscope = euroscope::detect();
         } else {
             ui.ctx().request_repaint();
         }

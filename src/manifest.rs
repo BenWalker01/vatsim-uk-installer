@@ -6,6 +6,7 @@ use std::{fmt, str::FromStr};
 /// GitHub releases API for the controller pack. Tags look like `2026_10` or `2026_09a`.
 pub const RELEASES_URL: &str =
     "https://api.github.com/repos/VATSIM-UK/uk-controller-pack/releases?per_page=100";
+pub const EUROSCOPE_DOWNLOAD_URL: &str = "https://euroscope.hu/install/EuroScopeSetup.3.2.3.2.msi";
 
 /// Pack release tag: `YYYY_MM` with an optional hotfix letter (`2026_09a`).
 /// Ordering is chronological: `2026_09` < `2026_09a` < `2026_09b` < `2026_10`.
@@ -91,14 +92,13 @@ impl Manifest {
     }
 
     /// Pack releases come from GitHub (cached on disk, revalidated with an ETag).
-    /// EuroScope/VC++ values are placeholders until their source is decided (see docs).
     pub fn fetch() -> anyhow::Result<Manifest> {
         let body = fetch_releases_json()?;
         let releases = parse_releases(&body)?;
         Ok(Manifest {
             euroscope: EuroScopeInfo {
                 required_version: "3.2.3.2".into(),
-                download_url: String::new(),
+                download_url: EUROSCOPE_DOWNLOAD_URL.into(),
             },
             vcredist_url: "https://aka.ms/vs/17/release/vc_redist.x86.exe".into(),
             releases,
