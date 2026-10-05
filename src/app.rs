@@ -141,12 +141,15 @@ impl App {
         }
     }
 
-    /// Reload state, preferring the pack's own `version.txt` over our record.
+    /// Reload persisted paths and derive the installed version from disk.
     fn reload_state(&mut self) {
         self.state = State::load();
-        if let Some(v) = self.pack_dir().and_then(|d| pack::installed_version(&d)) {
-            self.state.pack_version = Some(v);
-        }
+        self.refresh_pack_version();
+    }
+
+    /// The pack's on-disk version marker is authoritative; saved state alone does not mean it exists.
+    fn refresh_pack_version(&mut self) {
+        self.state.pack_version = self.pack_dir().and_then(|d| pack::installed_version(&d));
     }
 
     fn pack_dir(&self) -> Option<std::path::PathBuf> {
@@ -155,6 +158,7 @@ impl App {
 
     /// Start installing/updating the pack on a worker thread.
     fn start_update(&mut self) {
+        self.refresh_pack_version();
         let (Some(m), Some(dir)) = (&self.manifest, self.pack_dir()) else {
             self.status = "Update information unavailable".into();
             return;
@@ -203,6 +207,7 @@ impl App {
     }
 
     fn pack_ui(&mut self, ui: &mut egui::Ui) {
+        self.refresh_pack_version();
         match self.state.pack_version {
             Some(v) => ui.label(format!("Installed pack version: {v}")),
             None => ui.label("Controller pack not installed."),
@@ -220,6 +225,7 @@ impl App {
     }
 
     fn updates_ui(&mut self, ui: &mut egui::Ui) {
+        self.refresh_pack_version();
         let Some(m) = &self.manifest else {
             ui.label("Update information unavailable.");
             return;
