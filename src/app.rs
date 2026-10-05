@@ -82,15 +82,29 @@ impl App {
                 ui.label(format!("Found: {}", d.path.display()));
                 let version = d.version.as_deref().unwrap_or("unknown");
                 ui.label(format!("Version: {version}"));
-                if let (Some(v), Some(m)) = (&d.version, &self.manifest) {
+                if let Some(m) = &self.manifest {
                     let required = &m.euroscope.required_version;
-                    if euroscope::is_required_version(v, required) {
+                    if d.version
+                        .as_deref()
+                        .is_some_and(|v| euroscope::is_required_version(v, required))
+                    {
                         ui.label("Version OK.");
                     } else {
                         ui.colored_label(
                             egui::Color32::YELLOW,
-                            format!("Version must be exactly {required}; install it to continue."),
+                            format!(
+                                "Version {required} is required. Fully uninstall this version before installing it; downgrading requires a full uninstall."
+                            ),
                         );
+                        ui.label("After uninstalling, click Re-check, then install the required version.");
+                        if ui.button("Open uninstall options").clicked() {
+                            self.status = match euroscope::open_uninstaller() {
+                                Ok(()) => {
+                                    "Uninstall EuroScope in Installed apps, then click Re-check.".into()
+                                }
+                                Err(e) => format!("Could not open uninstall options: {e}"),
+                            };
+                        }
                     }
                 }
             }

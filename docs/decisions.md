@@ -19,21 +19,21 @@
 | 12 | Controller pack lives in `%APPDATA%\EuroScope\UK` (`pack::default_dir`) | User requirement. Both zips contain a top-level `UK/` folder (plus `README.pdf`); the installer strips `UK/` and extracts into the pack dir, skipping README.pdf. |
 | 13 | Downloads are verified against the GitHub asset `sha256:` digest; installed version is saved after each applied release | An interrupted update resumes from the last good release. |
 | 14 | Installed pack version is read from the selected pack directory's `version.txt`; saved state alone never indicates that the pack is installed | The release workflow will add `UK/version.txt` to both the full and changes-only zips. Currently the repo's file is stale (`2025_07`), so it must be written per release. Missing or unparseable content triggers a full install. |
+| 15 | A mismatched or unreadable EuroScope version must be fully uninstalled before installing the required version | Downgrades require a full uninstall; the installer opens Windows Settings' Installed apps page and enables installation after EuroScope is removed. |
 
 ## Open questions
 
 1. **EuroScope/VC++ source:** EuroScope version and download URL and the VC++ download URL are currently hard-coded; decide whether to move them into a small JSON manifest or web server.
 2. **Deleted files:** `changes_only_*.zip` does not list deletions (can be added to the release workflow if needed). Until then removed files linger after an update; decide whether to add a deletions list (e.g. `deleted.txt` in the zip).
 3. **Local edits:** how do we treat user-modified files in the pack (overwrite, back up, or skip)? This matters for the later configuration work.
-4. **EuroScope version policy:** required exact version is `3.2.3.2` (hard-coded in `Manifest::fetch`). Should a mismatched install block progress or only warn, and do we offer to downgrade (uninstall/replace) a newer one?
-5. **EuroScope install location:** do we support non-default install paths (user picker), and how do we find the sector files folder?
-6. **Elevation:** the VC++ redist needs admin. Should the installer always run elevated, or elevate only for that step?
-7. **Installer self-update:** should the installer check for its own new versions on startup (as VSEDI does)?
-8. **Controller pack config:** fold the existing standalone configuration app in as a wizard step, or keep it separate? (planned for later)
-9. **Platform support:** Windows only, or Linux (Wine) later?
-10. **Distribution:** code signing, packaging (plain exe vs MSI), and release pipeline.
-11. **Offline/failure behaviour:** what if the manifest is unreachable (currently an offline banner)? Cache the last manifest?
-12. **Integrity:** SHA-256 per download is planned; do we also want signed manifests?
+4. **EuroScope install location:** do we support non-default install paths (user picker), and how do we find the sector files folder?
+5. **Elevation:** the VC++ redist needs admin. Should the installer always run elevated, or elevate only for that step?
+6. **Installer self-update:** should the installer check for its own new versions on startup (as VSEDI does)?
+7. **Controller pack config:** fold the existing standalone configuration app in as a wizard step, or keep it separate? (planned for later)
+8. **Platform support:** Windows only, or Linux (Wine) later?
+9. **Distribution:** code signing, packaging (plain exe vs MSI), and release pipeline.
+10. **Offline/failure behaviour:** what if the manifest is unreachable (currently an offline banner)? Cache the last manifest?
+11. **Integrity:** SHA-256 per download is planned; do we also want signed manifests?
 
 ## Next implementation steps
 

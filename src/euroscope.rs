@@ -129,6 +129,14 @@ pub fn install(url: &str, shared: &Shared) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Open Windows Settings' Installed apps page so the user can fully uninstall EuroScope.
+pub fn open_uninstaller() -> anyhow::Result<()> {
+    Command::new("explorer.exe")
+        .arg("ms-settings:appsfeatures")
+        .spawn()?;
+    Ok(())
+}
+
 struct TempInstaller(PathBuf);
 
 impl Drop for TempInstaller {
