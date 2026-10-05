@@ -2,13 +2,18 @@
 
 use crate::{
     download::{self, Shared},
-    manifest::{Asset, PackRelease},
+    manifest::{Asset, PackRelease, PackVersion},
 };
 use std::path::{Path, PathBuf};
 
 /// Default pack location: `%APPDATA%\EuroScope\UK`.
 pub fn default_dir() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join("EuroScope").join("UK"))
+}
+
+/// Version recorded in `<dir>\version.txt` (the source of truth), if present and a valid tag.
+pub fn installed_version(dir: &Path) -> Option<PackVersion> {
+    std::fs::read_to_string(dir.join("version.txt")).ok()?.trim().parse().ok()
 }
 
 /// Download and extract the full pack for `release` into `dest`.
@@ -74,6 +79,18 @@ mod tests {
         assert!(!dest.join("UK").exists());
         assert!(top.len() > 0);
         std::fs::remove_dir_all(&dest).unwrap();
+    }
+
+    #[test]
+    fn reads_version_file() {
+        let dir = std::env::temp_dir().join(format!("vuk-ver-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(installed_version(&dir), None);
+        std::fs::write(dir.join("version.txt"), "2026_09a\r\n").unwrap();
+        assert_eq!(installed_version(&dir).unwrap().to_string(), "2026_09a");
+        std::fs::write(dir.join("version.txt"), "2025_07x1").unwrap();
+        assert_eq!(installed_version(&dir), None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

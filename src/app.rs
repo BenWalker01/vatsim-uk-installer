@@ -51,6 +51,7 @@ impl App {
             job: None,
         };
         app.refresh();
+        app.reload_state();
         app
     }
 
@@ -131,6 +132,14 @@ impl App {
         }
     }
 
+    /// Reload state, preferring the pack's own `version.txt` over our record.
+    fn reload_state(&mut self) {
+        self.state = State::load();
+        if let Some(v) = self.pack_dir().and_then(|d| pack::installed_version(&d)) {
+            self.state.pack_version = Some(v);
+        }
+    }
+
     fn pack_dir(&self) -> Option<std::path::PathBuf> {
         self.state.pack_dir.clone().or_else(pack::default_dir)
     }
@@ -162,7 +171,7 @@ impl App {
                 Ok(Err(e)) => format!("Failed: {e}"),
                 Err(_) => "Worker thread panicked".into(),
             };
-            self.state = State::load();
+            self.reload_state();
         } else {
             ui.ctx().request_repaint();
         }
