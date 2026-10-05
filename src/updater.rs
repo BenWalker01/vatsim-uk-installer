@@ -26,6 +26,28 @@ pub fn plan(manifest: &Manifest, installed: Option<PackVersion>) -> Option<Plan>
     Some(if pending.is_empty() { Plan::UpToDate } else { Plan::Patches(pending) })
 }
 
+/// Run a plan, saving the installed version after every step so an interruption resumes cleanly.
+pub fn execute(plan: Plan, dir: &std::path::Path, shared: &crate::download::Shared) -> anyhow::Result<()> {
+    let mut state = crate::state::State::load();
+    state.pack_dir = Some(dir.to_path_buf());
+    match plan {
+        Plan::UpToDate => {}
+        Plan::Reinstall(r) => {
+            crate::pack::install_full(&r, dir, shared)?;
+            state.pack_version = Some(r.version);
+            state.save()?;
+        }
+        Plan::Patches(releases) => {
+            for r in releases {
+                crate::pack::apply_changes(&r, dir, shared)?;
+                state.pack_version = Some(r.version);
+                state.save()?;
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

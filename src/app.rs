@@ -1,6 +1,6 @@
 //! UI: a sidebar of wizard steps plus a content panel.
 
-use crate::{euroscope, manifest::Manifest, state::State, updater, vcredist};
+use crate::{download, euroscope, manifest::Manifest, pack, state::State, updater, vcredist};
 use eframe::egui;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -30,6 +30,12 @@ pub struct App {
     euroscope: Option<euroscope::Detected>,
     vcredist: bool,
     status: String,
+    job: Option<Job>,
+}
+
+struct Job {
+    shared: download::Shared,
+    handle: std::thread::JoinHandle<anyhow::Result<()>>,
 }
 
 impl App {
@@ -42,6 +48,7 @@ impl App {
             euroscope: None,
             vcredist: false,
             status: String::new(),
+            job: None,
         };
         app.refresh();
         app
@@ -124,13 +131,72 @@ impl App {
         }
     }
 
+    fn pack_dir(&self) -> Option<std::path::PathBuf> {
+        self.state.pack_dir.clone().or_else(pack::default_dir)
+    }
+
+    /// Start installing/updating the pack on a worker thread.
+    fn start_update(&mut self) {
+        let (Some(m), Some(dir)) = (&self.manifest, self.pack_dir()) else {
+            self.status = "Update information unavailable".into();
+            return;
+        };
+        let Some(plan) = updater::plan(m, self.state.pack_version) else {
+            self.status = "No releases found".into();
+            return;
+        };
+        let shared = download::Shared::default();
+        let worker = shared.clone();
+        let handle = std::thread::spawn(move || updater::execute(plan, &dir, &worker));
+        self.job = Some(Job { shared, handle });
+        self.status.clear();
+    }
+
+    /// Show progress for a running job and collect its result once finished.
+    fn poll_job(&mut self, ui: &mut egui::Ui) {
+        let Some(job) = &self.job else { return };
+        if job.handle.is_finished() {
+            let job = self.job.take().unwrap();
+            self.status = match job.handle.join() {
+                Ok(Ok(())) => "Done".into(),
+                Ok(Err(e)) => format!("Failed: {e}"),
+                Err(_) => "Worker thread panicked".into(),
+            };
+            self.state = State::load();
+        } else {
+            ui.ctx().request_repaint();
+        }
+    }
+
+    fn progress_ui(&self, ui: &mut egui::Ui) {
+        if let Some(job) = &self.job {
+            let r = job.shared.lock().unwrap().clone();
+            ui.label(&r.message);
+            match r.total {
+                Some(t) if t > 0 => {
+                    ui.add(egui::ProgressBar::new(r.done as f32 / t as f32).show_percentage());
+                }
+                _ => {
+                    ui.add(egui::Spinner::new());
+                }
+            }
+        }
+    }
+
     fn pack_ui(&mut self, ui: &mut egui::Ui) {
         match self.state.pack_version {
             Some(v) => ui.label(format!("Installed pack version: {v}")),
             None => ui.label("Controller pack not installed."),
         };
-        if ui.button("Install controller pack").clicked() {
-            self.status = "Not implemented yet".into();
+        if let Some(dir) = self.pack_dir() {
+            ui.label(format!("Location: {}", dir.display()));
+        }
+        self.progress_ui(ui);
+        let idle = self.job.is_none();
+        if self.state.pack_version.is_none()
+            && ui.add_enabled(idle, egui::Button::new("Install controller pack")).clicked()
+        {
+            self.start_update();
         }
     }
 
@@ -139,7 +205,10 @@ impl App {
             ui.label("Update information unavailable.");
             return;
         };
-        match updater::plan(m, self.state.pack_version) {
+        let plan = updater::plan(m, self.state.pack_version);
+        let mut start = false;
+        let idle = self.job.is_none();
+        match &plan {
             None => {
                 ui.label("No releases found.");
             }
@@ -148,21 +217,26 @@ impl App {
             }
             Some(updater::Plan::Patches(p)) => {
                 ui.label(format!("{} update(s) to apply, in order:", p.len()));
-                for r in &p {
+                for r in p {
                     ui.label(format!("  {}", r.version));
                 }
-                let _ = ui.button("Update");
+                start = ui.add_enabled(idle, egui::Button::new("Update")).clicked();
             }
             Some(updater::Plan::Reinstall(r)) => {
                 ui.label(format!("Full install of {}.", r.version));
-                let _ = ui.button("Repair");
+                start = ui.add_enabled(idle, egui::Button::new("Install")).clicked();
             }
+        }
+        self.progress_ui(ui);
+        if start {
+            self.start_update();
         }
     }
 }
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.poll_job(ui);
         egui::Panel::left("steps").show(ui, |ui| {
             ui.heading("Setup");
             for (s, name) in STEPS {

@@ -1,15 +1,99 @@
 //! Controller pack install and patching.
 
-use crate::manifest::PackRelease;
-use std::path::Path;
+use crate::{
+    download::{self, Shared},
+    manifest::{Asset, PackRelease},
+};
+use std::path::{Path, PathBuf};
 
-/// TODO: download `release.full`, verify sha256, extract into `dest`.
-pub fn install_full(_release: &PackRelease, _dest: &Path) -> anyhow::Result<()> {
-    anyhow::bail!("controller pack install not implemented")
+/// Default pack location: `%APPDATA%\EuroScope\UK`.
+pub fn default_dir() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| d.join("EuroScope").join("UK"))
 }
 
-/// TODO: download `release.changes_only`, verify sha256, overlay onto `dest`.
+/// Download and extract the full pack for `release` into `dest`.
+pub fn install_full(release: &PackRelease, dest: &Path, shared: &Shared) -> anyhow::Result<()> {
+    download_and_extract(&release.full, dest, shared, &format!("Installing controller pack {}", release.version))
+}
+
+/// Download and overlay the changes-only zip for `release` onto `dest`.
 /// The caller saves `State.pack_version` after each successful patch.
-pub fn apply_changes(_release: &PackRelease, _dest: &Path) -> anyhow::Result<()> {
-    anyhow::bail!("controller pack patching not implemented")
+pub fn apply_changes(release: &PackRelease, dest: &Path, shared: &Shared) -> anyhow::Result<()> {
+    download_and_extract(&release.changes_only, dest, shared, &format!("Applying update {}", release.version))
+}
+
+fn download_and_extract(asset: &Asset, dest: &Path, shared: &Shared, message: &str) -> anyhow::Result<()> {
+    download::set_message(shared, message);
+    std::fs::create_dir_all(dest)?;
+    let tmp = std::env::temp_dir().join(format!("vatsim-uk-installer-{}.zip", std::process::id()));
+    let result = download::download(&asset.url, &asset.sha256, &tmp, shared).and_then(|_| extract(&tmp, dest));
+    let _ = std::fs::remove_file(&tmp);
+    result
+}
+
+/// Extract the `UK/` folder of `zip_path` into `dest` (the zip's top-level `UK` is stripped; other
+/// top-level files such as README.pdf are skipped), overwriting existing files and rejecting paths that escape `dest`.
+fn extract(zip_path: &Path, dest: &Path) -> anyhow::Result<()> {
+    let mut archive = zip::ZipArchive::new(std::fs::File::open(zip_path)?)?;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let Some(full) = entry.enclosed_name() else {
+            anyhow::bail!("unsafe path in zip: {}", entry.name());
+        };
+        let Ok(rel) = full.strip_prefix("UK") else { continue };
+        if rel.as_os_str().is_empty() {
+            continue;
+        }
+        let out = dest.join(rel);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out)?;
+        } else {
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::io::copy(&mut entry, &mut std::fs::File::create(&out)?)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    #[ignore = "downloads ~16MB from GitHub"]
+    fn downloads_live_patch() {
+        let m = crate::manifest::Manifest::fetch().unwrap();
+        let dest = std::env::temp_dir().join("vuk-live-patch");
+        let _ = std::fs::remove_dir_all(&dest);
+        apply_changes(m.latest().unwrap(), &dest, &Shared::default()).unwrap();
+        let top: Vec<_> = std::fs::read_dir(&dest).unwrap().flatten().map(|e| e.file_name()).collect();
+        println!("top-level: {top:?}");
+        assert!(!dest.join("UK").exists());
+        assert!(top.len() > 0);
+        std::fs::remove_dir_all(&dest).unwrap();
+    }
+
+    #[test]
+    fn extracts_and_overwrites() {
+        let dir = std::env::temp_dir().join(format!("vuk-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip_path = dir.join("t.zip");
+        let mut w = zip::ZipWriter::new(std::fs::File::create(&zip_path).unwrap());
+        w.start_file("UK/a/b.txt", zip::write::SimpleFileOptions::default()).unwrap();
+        w.write_all(b"new").unwrap();
+        w.start_file("README.pdf", zip::write::SimpleFileOptions::default()).unwrap();
+        w.write_all(b"x").unwrap();
+        w.finish().unwrap();
+
+        let dest = dir.join("out");
+        std::fs::create_dir_all(dest.join("a")).unwrap();
+        std::fs::write(dest.join("a").join("b.txt"), "old").unwrap();
+        extract(&zip_path, &dest).unwrap();
+        assert_eq!(std::fs::read_to_string(dest.join("a").join("b.txt")).unwrap(), "new");
+        assert!(!dest.join("README.pdf").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

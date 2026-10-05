@@ -90,12 +90,106 @@ impl Manifest {
         self.releases.last()
     }
 
-    /// TODO: fetch `RELEASES_URL`, map `uk_controller_pack_<tag>.zip` and
-    /// `changes_only_<tag>.zip` assets (url + `digest`) into `PackRelease`s, skip drafts/prereleases.
-    /// EuroScope/VC++ values need a source (hard-coded or a small JSON); see docs.
+    /// Pack releases come from GitHub (cached on disk, revalidated with an ETag).
+    /// EuroScope/VC++ values are placeholders until their source is decided (see docs).
     pub fn fetch() -> anyhow::Result<Manifest> {
-        anyhow::bail!("manifest fetching not implemented")
+        let body = fetch_releases_json()?;
+        let releases = parse_releases(&body)?;
+        Ok(Manifest {
+            euroscope: EuroScopeInfo {
+                required_version: "3.2.3.2".into(),
+                download_url: String::new(),
+            },
+            vcredist_url: "https://aka.ms/vs/17/release/vc_redist.x86.exe".into(),
+            releases,
+        })
     }
+}
+
+fn cache_paths() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let dir = dirs::cache_dir()?.join("vatsim-uk-installer");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some((dir.join("releases.json"), dir.join("releases.etag")))
+}
+
+fn fetch_releases_json() -> anyhow::Result<String> {
+    let cache = cache_paths();
+    let cached = cache.as_ref().and_then(|(b, _)| std::fs::read_to_string(b).ok());
+    let etag = cache.as_ref().and_then(|(_, e)| std::fs::read_to_string(e).ok());
+
+    let mut req = crate::download::agent()
+        .get(RELEASES_URL)
+        .header("Accept", "application/vnd.github+json");
+    if let (Some(etag), Some(_)) = (&etag, &cached) {
+        req = req.header("If-None-Match", etag.trim());
+    }
+    match req.call() {
+        Ok(resp) if resp.status().as_u16() == 304 && cached.is_some() => Ok(cached.unwrap()),
+        Ok(mut resp) if resp.status().is_success() => {
+            let new_etag = resp
+                .headers()
+                .get("etag")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned);
+            let body = resp.body_mut().read_to_string()?;
+            if let Some((b, e)) = cache {
+                let _ = std::fs::write(b, &body);
+                match new_etag {
+                    Some(t) => {
+                        let _ = std::fs::write(e, t);
+                    }
+                    None => {
+                        let _ = std::fs::remove_file(e);
+                    }
+                }
+            }
+            Ok(body)
+        }
+        // Rate-limited or offline: fall back to the last good response.
+        Ok(resp) => cached.ok_or_else(|| anyhow::anyhow!("GitHub returned HTTP {}", resp.status())),
+        Err(e) => cached.ok_or_else(|| e.into()),
+    }
+}
+
+fn parse_releases(body: &str) -> anyhow::Result<Vec<PackRelease>> {
+    #[derive(Deserialize)]
+    struct Rel {
+        tag_name: String,
+        draft: bool,
+        prerelease: bool,
+        assets: Vec<Ast>,
+    }
+    #[derive(Deserialize)]
+    struct Ast {
+        name: String,
+        digest: Option<String>,
+        browser_download_url: String,
+    }
+
+    let mut out = Vec::new();
+    for rel in serde_json::from_str::<Vec<Rel>>(body)? {
+        if rel.draft || rel.prerelease {
+            continue;
+        }
+        let Ok(version) = rel.tag_name.parse::<PackVersion>() else { continue };
+        let find = |name: String| {
+            rel.assets.iter().find(|a| a.name == name).and_then(|a| {
+                Some(Asset {
+                    url: a.browser_download_url.clone(),
+                    sha256: a.digest.as_deref()?.strip_prefix("sha256:")?.to_owned(),
+                })
+            })
+        };
+        let (Some(full), Some(changes_only)) = (
+            find(format!("uk_controller_pack_{}.zip", rel.tag_name)),
+            find(format!("changes_only_{}.zip", rel.tag_name)),
+        ) else {
+            continue;
+        };
+        out.push(PackRelease { version, full, changes_only });
+    }
+    out.sort_by_key(|r| r.version);
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -111,5 +205,33 @@ mod tests {
         assert!(v("2025_12") < v("2026_01"));
         assert_eq!(v("2026_09a").to_string(), "2026_09a");
         assert!("garbage".parse::<PackVersion>().is_err());
+    }
+
+    #[test]
+    #[ignore = "hits the GitHub API"]
+    fn fetches_live_releases() {
+        let m = Manifest::fetch().unwrap();
+        println!("{} releases, latest {}", m.releases.len(), m.latest().unwrap().version);
+        assert!(m.latest().is_some());
+        // Second call exercises the ETag/304 path.
+        assert_eq!(Manifest::fetch().unwrap().releases.len(), m.releases.len());
+    }
+
+    #[test]
+    fn parses_release_json() {
+        let json = r#"[
+          {"tag_name":"2026_10","draft":false,"prerelease":false,"assets":[
+            {"name":"changes_only_2026_10.zip","digest":"sha256:aa","browser_download_url":"u1"},
+            {"name":"uk_controller_pack_2026_10.zip","digest":"sha256:bb","browser_download_url":"u2"}]},
+          {"tag_name":"2026_09a","draft":false,"prerelease":false,"assets":[
+            {"name":"changes_only_2026_09a.zip","digest":"sha256:cc","browser_download_url":"u3"},
+            {"name":"uk_controller_pack_2026_09a.zip","digest":"sha256:dd","browser_download_url":"u4"}]},
+          {"tag_name":"2026_08","draft":true,"prerelease":false,"assets":[]}
+        ]"#;
+        let r = parse_releases(json).unwrap();
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0].version.to_string(), "2026_09a");
+        assert_eq!(r[1].full.sha256, "bb");
+        assert_eq!(r[1].changes_only.url, "u1");
     }
 }

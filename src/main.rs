@@ -1,4 +1,5 @@
 mod app;
+mod download;
 mod euroscope;
 mod manifest;
 mod pack;
