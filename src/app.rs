@@ -75,8 +75,14 @@ impl App {
                 let version = d.version.as_deref().unwrap_or("unknown");
                 ui.label(format!("Version: {version}"));
                 if let (Some(v), Some(m)) = (&d.version, &self.manifest) {
-                    if !euroscope::meets_minimum(v, &m.euroscope.minimum_version) {
-                        ui.colored_label(egui::Color32::YELLOW, "Version is older than required.");
+                    let required = &m.euroscope.required_version;
+                    if euroscope::is_required_version(v, required) {
+                        ui.label("Version OK.");
+                    } else {
+                        ui.colored_label(
+                            egui::Color32::YELLOW,
+                            format!("Version must be exactly {required}; install it to continue."),
+                        );
                     }
                 }
             }

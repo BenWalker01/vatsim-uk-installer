@@ -69,14 +69,15 @@ pub fn file_version(_path: &std::path::Path) -> Option<String> {
     None
 }
 
-/// Numeric dotted-version comparison, e.g. "3.2.3.2" >= "3.2.3".
-pub fn meets_minimum(found: &str, minimum: &str) -> bool {
-    let parse = |s: &str| s.split('.').map(|p| p.parse::<u32>().unwrap_or(0)).collect::<Vec<_>>();
-    let (mut a, mut b) = (parse(found), parse(minimum));
+/// EuroScope must be exactly the required version: newer releases are not supported.
+/// Trailing zero components are ignored, so "3.2.3" == "3.2.3.0".
+pub fn is_required_version(found: &str, required: &str) -> bool {
+    let parse = |s: &str| s.split('.').map(|p| p.trim().parse::<u32>().unwrap_or(0)).collect::<Vec<_>>();
+    let (mut a, mut b) = (parse(found), parse(required));
     let n = a.len().max(b.len());
     a.resize(n, 0);
     b.resize(n, 0);
-    a >= b
+    a == b
 }
 
 /// TODO: download installer from the manifest and run it, reporting progress.
@@ -86,7 +87,7 @@ pub fn install(_url: &str) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::meets_minimum;
+    use super::is_required_version;
 
     #[test]
     #[cfg(windows)]
@@ -97,7 +98,9 @@ mod tests {
 
     #[test]
     fn version_compare() {
-        assert!(meets_minimum("3.2.3.2", "3.2.3"));
-        assert!(!meets_minimum("3.2.1", "3.2.3"));
+        assert!(is_required_version("3.2.3.2", "3.2.3.2"));
+        assert!(is_required_version("3.2.3", "3.2.3.0"));
+        assert!(!is_required_version("3.2.13", "3.2.3.2"));
+        assert!(!is_required_version("3.2.1", "3.2.3.2"));
     }
 }

@@ -53,8 +53,7 @@ mod tests {
     fn manifest(patches: Vec<PatchRelease>) -> Manifest {
         Manifest {
             euroscope: EuroScopeInfo {
-                minimum_version: String::new(),
-                recommended_version: String::new(),
+                required_version: String::new(),
                 download_url: String::new(),
             },
             vcredist_url: String::new(),

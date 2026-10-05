@@ -16,8 +16,8 @@ pub struct Manifest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EuroScopeInfo {
-    pub minimum_version: String,
-    pub recommended_version: String,
+    /// Exact version required; newer versions are not supported.
+    pub required_version: String,
     pub download_url: String,
 }
 
