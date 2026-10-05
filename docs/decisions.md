@@ -18,7 +18,7 @@
 | 11 | Limit GitHub API usage: one `releases` list call per run (cached on disk, use `ETag`/`If-None-Match`), then download zips via `browser_download_url` | Unauthenticated API is 60 req/h; asset downloads from `browser_download_url` are not API calls, and zips are fetched whole, never per file. |
 | 12 | Controller pack lives in `%APPDATA%\EuroScope\UK` (`pack::default_dir`) | User requirement. Both zips contain a top-level `UK/` folder (plus `README.pdf`); the installer strips `UK/` and extracts into the pack dir, skipping README.pdf. |
 | 13 | Downloads are verified against the GitHub asset `sha256:` digest; installed version is saved after each applied release | An interrupted update resumes from the last good release. |
-| 14 | Installed pack version is read from `%APPDATA%\EuroScope\UK\version.txt` (must contain the release tag, e.g. `2026_10`); `state.json` is only a fallback | The release workflow will add `UK/version.txt` to both the full and changes-only zips. Currently the repo's file is stale (`2025_07`), so it must be written per release. Unparseable content is ignored. |
+| 14 | Installed pack version is read from the selected pack directory's `version.txt`; saved state alone never indicates that the pack is installed | The release workflow will add `UK/version.txt` to both the full and changes-only zips. Currently the repo's file is stale (`2025_07`), so it must be written per release. Missing or unparseable content triggers a full install. |
 
 ## Open questions
 
@@ -42,3 +42,4 @@
 - EuroScope exe version read and install flow
 - VC++ redist silent install (`/install /quiet /norestart`)
 - Manifest fetching and caching
+- Add a backup before updating
