@@ -139,20 +139,22 @@ impl App {
             ui.label("Update information unavailable.");
             return;
         };
-        ui.label(format!("Latest version: {}", m.latest_version()));
         match updater::plan(m, self.state.pack_version) {
-            updater::Plan::UpToDate => {
+            None => {
+                ui.label("No releases found.");
+            }
+            Some(updater::Plan::UpToDate) => {
                 ui.label("You are up to date.");
             }
-            updater::Plan::Patches(p) => {
-                ui.label(format!("{} patch(es) to apply, in order:", p.len()));
-                for patch in &p {
-                    ui.label(format!("  v{} -> v{}", patch.from, patch.version));
+            Some(updater::Plan::Patches(p)) => {
+                ui.label(format!("{} update(s) to apply, in order:", p.len()));
+                for r in &p {
+                    ui.label(format!("  {}", r.version));
                 }
                 let _ = ui.button("Update");
             }
-            updater::Plan::Reinstall(p) => {
-                ui.label(format!("Full reinstall then {} patch(es).", p.len()));
+            Some(updater::Plan::Reinstall(r)) => {
+                ui.label(format!("Full install of {}.", r.version));
                 let _ = ui.button("Repair");
             }
         }

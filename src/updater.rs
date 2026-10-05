@@ -1,80 +1,70 @@
-//! Sequential patch planning for the controller pack.
+//! Sequential update planning for the controller pack.
 
-use crate::manifest::{Manifest, PatchRelease};
+use crate::manifest::{Manifest, PackRelease, PackVersion};
 
 pub enum Plan {
     UpToDate,
-    /// Apply these patches in order.
-    Patches(Vec<PatchRelease>),
-    /// Chain is broken or nothing is installed: reinstall the baseline, then apply `Vec`.
-    Reinstall(Vec<PatchRelease>),
+    /// Apply each release's changes-only zip, oldest first.
+    Patches(Vec<PackRelease>),
+    /// Nothing installed, or the installed version is unknown: install this full pack.
+    Reinstall(PackRelease),
 }
 
-/// Walk from `installed` to the latest version, one patch at a time.
-pub fn plan(manifest: &Manifest, installed: Option<u32>) -> Plan {
-    let Some(mut current) = installed else {
-        return Plan::Reinstall(chain(manifest, manifest.baseline.version).unwrap_or_default());
+pub fn plan(manifest: &Manifest, installed: Option<PackVersion>) -> Option<Plan> {
+    let latest = manifest.latest()?;
+    let Some(current) = installed else {
+        return Some(Plan::Reinstall(latest.clone()));
     };
-    let latest = manifest.latest_version();
-    if current >= latest {
-        return Plan::UpToDate;
+    if current == latest.version {
+        return Some(Plan::UpToDate);
     }
-    match chain(manifest, current) {
-        Some(c) => Plan::Patches(c),
-        None => {
-            current = manifest.baseline.version;
-            Plan::Reinstall(chain(manifest, current).unwrap_or_default())
-        }
+    // Changes-only zips are only valid on top of a known release.
+    if !manifest.releases.iter().any(|r| r.version == current) {
+        return Some(Plan::Reinstall(latest.clone()));
     }
-}
-
-/// Returns the ordered patches from `start` to latest, or None if a link is missing.
-fn chain(manifest: &Manifest, start: u32) -> Option<Vec<PatchRelease>> {
-    let latest = manifest.latest_version();
-    let mut current = start;
-    let mut out = Vec::new();
-    while current < latest {
-        let next = manifest.patches.iter().find(|p| p.from == current)?;
-        current = next.version;
-        out.push(next.clone());
-    }
-    Some(out)
+    let pending: Vec<_> = manifest.releases.iter().filter(|r| r.version > current).cloned().collect();
+    Some(if pending.is_empty() { Plan::UpToDate } else { Plan::Patches(pending) })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::{EuroScopeInfo, PackRelease};
+    use crate::manifest::{Asset, EuroScopeInfo};
 
-    fn patch(from: u32, version: u32) -> PatchRelease {
-        PatchRelease { from, version, url: String::new(), sha256: String::new() }
+    fn rel(tag: &str) -> PackRelease {
+        let a = Asset { url: String::new(), sha256: String::new() };
+        PackRelease { version: tag.parse().unwrap(), full: a.clone(), changes_only: a }
     }
 
-    fn manifest(patches: Vec<PatchRelease>) -> Manifest {
+    fn manifest(tags: &[&str]) -> Manifest {
         Manifest {
-            euroscope: EuroScopeInfo {
-                required_version: String::new(),
-                download_url: String::new(),
-            },
+            euroscope: EuroScopeInfo { required_version: String::new(), download_url: String::new() },
             vcredist_url: String::new(),
-            baseline: PackRelease { version: 1, url: String::new(), sha256: String::new() },
-            patches,
+            releases: tags.iter().map(|t| rel(t)).collect(),
         }
     }
 
+    fn v(s: &str) -> Option<PackVersion> {
+        Some(s.parse().unwrap())
+    }
+
     #[test]
-    fn chains_patches_in_order() {
-        let m = manifest(vec![patch(3, 4), patch(1, 2), patch(2, 3)]);
-        match plan(&m, Some(2)) {
-            Plan::Patches(p) => assert_eq!(p.iter().map(|p| p.version).collect::<Vec<_>>(), [3, 4]),
+    fn applies_each_release_in_order() {
+        let m = manifest(&["2026_08", "2026_09", "2026_09a", "2026_10"]);
+        match plan(&m, v("2026_09")) {
+            Some(Plan::Patches(p)) => {
+                let tags: Vec<_> = p.iter().map(|r| r.version.to_string()).collect();
+                assert_eq!(tags, ["2026_09a", "2026_10"]);
+            }
             _ => panic!(),
         }
-        assert!(matches!(plan(&m, Some(4)), Plan::UpToDate));
+        assert!(matches!(plan(&m, v("2026_10")), Some(Plan::UpToDate)));
     }
 
     #[test]
-    fn broken_chain_reinstalls() {
-        let m = manifest(vec![patch(1, 2), patch(3, 4)]);
-        assert!(matches!(plan(&m, Some(2)), Plan::Reinstall(_)));
+    fn unknown_or_missing_version_reinstalls_latest() {
+        let m = manifest(&["2026_09", "2026_10"]);
+        assert!(matches!(plan(&m, None), Some(Plan::Reinstall(_))));
+        assert!(matches!(plan(&m, v("2020_01")), Some(Plan::Reinstall(_))));
     }
 }

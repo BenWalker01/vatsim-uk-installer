@@ -1,15 +1,15 @@
 //! Controller pack install and patching.
 
-use crate::manifest::{PackRelease, PatchRelease};
+use crate::manifest::PackRelease;
 use std::path::Path;
 
-/// TODO: download, verify sha256, extract the full baseline into `dest`.
-pub fn install_baseline(_release: &PackRelease, _dest: &Path) -> anyhow::Result<()> {
+/// TODO: download `release.full`, verify sha256, extract into `dest`.
+pub fn install_full(_release: &PackRelease, _dest: &Path) -> anyhow::Result<()> {
     anyhow::bail!("controller pack install not implemented")
 }
 
-/// TODO: download, verify sha256, overlay changed files onto `dest`
-/// (and honour a deletions list in the patch).
-pub fn apply_patch(_patch: &PatchRelease, _dest: &Path) -> anyhow::Result<()> {
+/// TODO: download `release.changes_only`, verify sha256, overlay onto `dest`.
+/// The caller saves `State.pack_version` after each successful patch.
+pub fn apply_changes(_release: &PackRelease, _dest: &Path) -> anyhow::Result<()> {
     anyhow::bail!("controller pack patching not implemented")
 }

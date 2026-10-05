@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct State {
-    pub pack_version: Option<u32>,
+    pub pack_version: Option<crate::manifest::PackVersion>,
     pub pack_dir: Option<PathBuf>,
     pub euroscope_path: Option<PathBuf>,
 }
