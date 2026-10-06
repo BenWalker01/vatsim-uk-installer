@@ -77,9 +77,12 @@ fn read_asrs(pack: &Path) -> Baseline {
     out
 }
 
-/// Lines the installer's own config step rewrites; they are not part of the user's layout.
+/// Lines never saved: ones the installer's config step rewrites, and sector references that change per pack version.
 fn is_config_line(l: &str) -> bool {
-    l.starts_with("TAGFAMILY:") || l.contains("PLUGIN:RDF Plugin for Euroscope:EnableDraw")
+    l.starts_with("TAGFAMILY:")
+        || l.starts_with("SECTORFILE:")
+        || l.starts_with("SECTORTITLE:")
+        || l.contains("PLUGIN:RDF Plugin for Euroscope:EnableDraw")
 }
 
 fn line_set(text: &str) -> BTreeSet<&str> {
@@ -118,10 +121,10 @@ pub fn save_changes(pack: &Path, pristine: &Baseline) -> anyhow::Result<usize> {
 fn apply_change(text: &str, change: &FileChange) -> String {
     let mut lines: Vec<String> = norm(text)
         .lines()
-        .filter(|l| !change.removed.iter().any(|r| r == l.trim_end()))
+        .filter(|l| is_config_line(l) || !change.removed.iter().any(|r| r == l.trim_end()))
         .map(String::from)
         .collect();
-    for add in &change.added {
+    for add in change.added.iter().filter(|a| !is_config_line(a)) {
         if !lines.iter().any(|l| l.trim_end() == add) {
             lines.push(add.clone());
         }
@@ -168,8 +171,8 @@ mod tests {
 
     #[test]
     fn config_lines_are_ignored() {
-        let before = map(&[("a.asr", "TAGFAMILY:NODE\nP:1\n")]);
-        let after = map(&[("a.asr", "TAGFAMILY:NODE-Easy\nP:1\nPLUGIN:RDF Plugin for Euroscope:EnableDraw:1\n")]);
+        let before = map(&[("a.asr", "TAGFAMILY:NODE\nSECTORFILE:UK\\a_09.sct\nP:1\n")]);
+        let after = map(&[("a.asr", "TAGFAMILY:NODE-Easy\nSECTORFILE:UK\\a_10.sct\nSECTORTITLE:x\nP:1\nPLUGIN:RDF Plugin for Euroscope:EnableDraw:1\n")]);
         assert!(diff(&before, &after).is_empty());
     }
 }
