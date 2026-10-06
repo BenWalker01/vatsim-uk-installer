@@ -240,12 +240,20 @@ impl App {
                 egui::Color32::LIGHT_RED,
                 "Visual C++ Redistributable not found.",
             );
-            if ui.button("Install").clicked() {
+            ui.hyperlink_to("Microsoft's supported downloads", vcredist::DOWNLOADS_URL);
+            if ui
+                .add_enabled(self.job.is_none(), egui::Button::new("Install"))
+                .clicked()
+            {
                 self.status = match self.manifest.as_ref() {
-                    Some(m) => vcredist::install(&m.vcredist_url)
-                        .err()
-                        .map(|e| e.to_string())
-                        .unwrap_or_default(),
+                    Some(m) => {
+                        let url = m.vcredist_url.clone();
+                        let shared = download::Shared::default();
+                        let worker = shared.clone();
+                        let handle = std::thread::spawn(move || vcredist::install(&url, &worker));
+                        self.job = Some(Job { shared, handle });
+                        String::new()
+                    }
                     None => "Manifest unavailable".into(),
                 };
             }
@@ -386,6 +394,7 @@ impl App {
             self.reload_state();
             self.backups_dirty = true;
             self.euroscope = euroscope::detect();
+            self.vcredist = vcredist::is_installed();
         } else {
             ui.ctx().request_repaint();
         }

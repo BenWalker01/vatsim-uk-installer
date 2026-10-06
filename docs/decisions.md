@@ -10,7 +10,7 @@
 | 4 | Each release ships `uk_controller_pack_<tag>.zip` (full) and `changes_only_<tag>.zip` (diff vs previous release); updating applies every release after the installed one, oldest first | Verified against the 2026_10 release. `updater::plan` does this. |
 | 5 | No installed version, or an installed tag not in the release list, triggers a full install of the latest release | Safe fallback; no patches needed since the full zip is current. |
 | 6 | Installer state stored in `%APPDATA%\vatsim-uk-installer\state.json` | Tracks installed pack version and paths. |
-| 7 | Pack releases come from the GitHub releases API (assets expose a `sha256:` digest used for verification); EuroScope uses the official 3.2.3.2 MSI URL and VC++ uses Microsoft's download URL | Avoids maintaining a separate pack manifest. |
+| 7 | Pack releases come from the GitHub releases API (assets expose a `sha256:` digest used for verification); EuroScope uses the official 3.2.3.2 MSI URL and VC++ uses Microsoft's latest x86 redistributable URL | Avoids maintaining a separate pack manifest. |
 | 8 | VC++ check targets the x86 2015-2022 runtime (registry) | EuroScope is 32-bit. |
 
 | 9 | EuroScope must be an exact version (`required_version`), not a minimum | Newer releases are less stable; both older and newer versions are flagged. |
@@ -40,6 +40,5 @@
 - HTTP downloader with progress reporting and SHA-256 verification
 - Controller pack baseline install and patch application (`pack.rs`)
 - EuroScope exe version read and install flow
-- VC++ redist silent install (`/install /quiet /norestart`)
 - Manifest fetching and caching
 - Add a backup before updating
