@@ -3555,6 +3555,7 @@ dependencies = [
  "dirs",
  "eframe",
  "hex",
+ "image",
  "serde",
  "serde_json",
  "sha2",
