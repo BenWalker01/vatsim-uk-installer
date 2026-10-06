@@ -351,6 +351,9 @@ impl App {
 
     /// Start installing/updating the pack on a worker thread, optionally backing up and preserving the layout first.
     fn start_update(&mut self, opts: UpdateOptions) {
+        if self.job.is_some() {
+            return;
+        }
         self.refresh_pack_version();
         let (Some(m), Some(dir)) = (&self.manifest, self.pack_dir()) else {
             self.status = "Update information unavailable".into();
@@ -532,7 +535,9 @@ impl App {
             );
             let (mut go, mut cancel) = (false, false);
             ui.horizontal(|ui| {
-                go = ui.button("Continue").clicked();
+                go = ui
+                    .add_enabled(self.job.is_none(), egui::Button::new("Continue"))
+                    .clicked();
                 cancel = ui.button("Cancel").clicked();
             });
             if go {
@@ -905,7 +910,7 @@ impl App {
                                 }
                             }
                         }
-                        if ui.add_enabled(saved > 0, egui::Button::new("Clear saved layout")).clicked() {
+                        if ui.add_enabled(saved > 0 && idle, egui::Button::new("Clear saved layout")).clicked() {
                             self.status = match layout::clear_layout() {
                                 Ok(()) => "Saved layout cleared.".into(),
                                 Err(e) => format!("Could not clear layout: {e}"),
@@ -948,6 +953,11 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_job(ui);
+        let busy = self.job.is_some();
+        if busy && ui.ctx().input(|i| i.viewport().close_requested()) {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.status = "Please wait for the current task to finish before closing.".into();
+        }
         egui::Panel::left("steps")
             .resizable(false)
             .default_size(232.0)
@@ -1008,7 +1018,10 @@ impl eframe::App for App {
                                     egui::Label::new(text).truncate(),
                                 );
                             });
-                    } else if ui.selectable_label(active, text).clicked() {
+                    } else if ui
+                        .add_enabled(!busy, egui::Button::selectable(active, text))
+                        .clicked()
+                    {
                         self.step = *s;
                         self.backups_dirty = true;
                     }
@@ -1039,7 +1052,7 @@ impl eframe::App for App {
                         }));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let ready = !self.wizard || (self.step_satisfied() && self.job.is_none());
+                        let ready = !busy && (!self.wizard || self.step_satisfied());
                         if self.step != Step::Done
                             && ui
                                 .add_enabled(
@@ -1054,7 +1067,9 @@ impl eframe::App for App {
                         {
                             self.next();
                         }
-                        if self.wizard && self.step != Step::Welcome && ui.button("Back").clicked()
+                        if self.wizard
+                            && self.step != Step::Welcome
+                            && ui.add_enabled(!busy, egui::Button::new("Back")).clicked()
                         {
                             let steps = self.steps();
                             if let Some(i) = steps.iter().position(|(s, _)| *s == self.step) {
@@ -1067,7 +1082,7 @@ impl eframe::App for App {
                         }
                         if self.wizard
                             && self.step == Step::Done
-                            && ui.button("Finish setup").clicked()
+                            && ui.add_enabled(!busy, egui::Button::new("Finish setup")).clicked()
                         {
                             self.wizard = false;
                         }
