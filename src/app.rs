@@ -57,7 +57,25 @@ pub struct App {
     job: Option<Job>,
     config: Config,
     capturing_asel: bool,
+    config_tab: ConfigTab,
     textures: std::collections::HashMap<String, egui::TextureHandle>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum ConfigTab {
+    Details,
+    Appearance,
+    Controlling,
+    Layout,
+}
+
+impl ConfigTab {
+    const ALL: [(ConfigTab, &'static str); 4] = [
+        (ConfigTab::Details, "Your details"),
+        (ConfigTab::Appearance, "Appearance"),
+        (ConfigTab::Controlling, "Controlling"),
+        (ConfigTab::Layout, "Screen layout"),
+    ];
 }
 
 struct Job {
@@ -83,6 +101,7 @@ impl App {
             job: None,
             config: Config::default(),
             capturing_asel: false,
+            config_tab: ConfigTab::Details,
             textures: Default::default(),
         };
         app.refresh();
@@ -524,41 +543,61 @@ impl App {
         options: &[(&str, &str, &str)],
         value: &mut String,
     ) {
-        ui.label(title);
-        for (key, desc, color) in options {
-            ui.horizontal(|ui| {
-                let c = color.parse::<u32>().unwrap_or(0);
-                // Stored colours are BGR (Windows COLORREF).
-                let swatch = egui::Color32::from_rgb(c as u8, (c >> 8) as u8, (c >> 16) as u8);
-                let (rect, swatch_resp) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
-                ui.painter().rect_filled(rect, 2.0, swatch);
-                let radio = ui.radio_value(value, key.to_string(), *desc);
-                let id = format!("{kind}{key}");
-                if !textures.contains_key(&id) {
-                    if let Some(tex) = config::preview_bytes(kind, key)
-                        .and_then(|b| image::load_from_memory(b).ok())
-                        .map(|img| {
-                            let img = img.into_rgba8();
-                            let size = [img.width() as usize, img.height() as usize];
-                            ui.ctx().load_texture(
-                                id.clone(),
-                                egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw()),
-                                egui::TextureOptions::LINEAR,
-                            )
-                        })
-                    {
-                        textures.insert(id.clone(), tex);
-                    }
-                }
-                if let Some(tex) = textures.get(&id) {
-                    let tip = |ui: &mut egui::Ui| {
-                        ui.add(egui::Image::new(tex).max_width(320.0));
-                    };
-                    swatch_resp.on_hover_ui(tip);
-                    radio.on_hover_ui(tip);
-                }
-            });
+        // Stored colours are BGR (Windows COLORREF).
+        let swatch = |ui: &mut egui::Ui, color: &str| {
+            let c = color.parse::<u32>().unwrap_or(0);
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+            ui.painter()
+                .rect_filled(rect, 2.0, egui::Color32::from_rgb(c as u8, (c >> 8) as u8, (c >> 16) as u8));
+            ui.painter().rect_stroke(
+                rect,
+                2.0,
+                egui::Stroke::new(1.0, egui::Color32::from_gray(190)),
+                egui::StrokeKind::Inside,
+            );
+        };
+        for (key, _, _) in options {
+            let id = format!("{kind}{key}");
+            if textures.contains_key(&id) {
+                continue;
+            }
+            if let Some(tex) = config::preview_bytes(kind, key)
+                .and_then(|b| image::load_from_memory(b).ok())
+                .map(|img| {
+                    let img = img.into_rgba8();
+                    let size = [img.width() as usize, img.height() as usize];
+                    ui.ctx().load_texture(
+                        id.clone(),
+                        egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw()),
+                        egui::TextureOptions::LINEAR,
+                    )
+                })
+            {
+                textures.insert(id, tex);
+            }
         }
+        ui.label(title);
+        ui.horizontal(|ui| {
+            let current = options.iter().find(|(k, _, _)| *k == value.as_str()).unwrap_or(&options[0]);
+            swatch(ui, current.2);
+            egui::ComboBox::from_id_salt(kind)
+                .width(380.0)
+                .selected_text(current.1)
+                .show_ui(ui, |ui| {
+                    for (key, desc, color) in options {
+                        ui.horizontal(|ui| {
+                            swatch(ui, color);
+                            let r = ui.selectable_value(value, key.to_string(), *desc);
+                            if let Some(tex) = textures.get(&format!("{kind}{key}")) {
+                                r.on_hover_ui(|ui| {
+                                    ui.add(egui::Image::new(tex).max_width(320.0));
+                                });
+                            }
+                        });
+                    }
+                });
+        });
+        ui.end_row();
     }
 
     fn config_ui(&mut self, ui: &mut egui::Ui) {
@@ -586,17 +625,47 @@ impl App {
         if from_pack {
             ui.label("Loaded your existing settings from the pack; saving will store them locally.");
         }
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        let problem = self.config.validate();
+        ui.horizontal(|ui| {
+            for (tab, name) in ConfigTab::ALL {
+                let label = if tab == ConfigTab::Details && problem.is_some() {
+                    egui::RichText::new(format!("{name} ●")).color(egui::Color32::LIGHT_RED)
+                } else {
+                    egui::RichText::new(name)
+                };
+                ui.selectable_value(&mut self.config_tab, tab, label.size(17.0));
+                ui.add_space(8.0);
+            }
+        });
+        ui.separator();
+        // Leave room below the content so the action bar is always on screen.
+        let scroll_height = (ui.available_height() - 100.0).max(120.0);
+        egui::ScrollArea::vertical().max_height(scroll_height).auto_shrink([false, false]).show(ui, |ui| {
             let c = &mut self.config;
-            egui::Grid::new("basic").num_columns(2).show(ui, |ui| {
+            let hint = |ui: &mut egui::Ui, bad: bool, msg: &str| {
+                if bad {
+                    ui.colored_label(egui::Color32::LIGHT_RED, msg);
+                }
+            };
+            let font = config::FONT_OPTIONS.iter().find(|o| o.0 == c.font_size).map_or("", |o| o.1);
+            let rdf = config::RDF_OPTIONS.iter().find(|o| o.0 == c.rdf_mode).map_or("", |o| o.1);
+            let saved = layout::load_layout().len();
+            ui.add_space(6.0);
+
+            match self.config_tab {
+                ConfigTab::Details => {
+            egui::Grid::new("basic").num_columns(3).spacing([16.0, 12.0]).show(ui, |ui| {
                 ui.label("Name (as on VATSIM)");
-                ui.text_edit_singleline(&mut c.name);
+                ui.add_sized([360.0, 30.0], egui::TextEdit::singleline(&mut c.name));
+                hint(ui, c.name.trim().is_empty(), "Required");
                 ui.end_row();
-                ui.label("Initials (2-3 letters)");
-                ui.text_edit_singleline(&mut c.initials);
+                ui.label("Initials");
+                ui.add_sized([360.0, 30.0], egui::TextEdit::singleline(&mut c.initials).hint_text("2-3 letters"));
+                hint(ui, !(2..=3).contains(&c.initials.trim().chars().count()), "2-3 letters");
                 ui.end_row();
                 ui.label("VATSIM CID");
-                ui.text_edit_singleline(&mut c.cid);
+                ui.add_sized([360.0, 30.0], egui::TextEdit::singleline(&mut c.cid));
+                hint(ui, !config::is_valid_cid(&c.cid), "6 or 7 digits");
                 ui.end_row();
                 ui.label("Rating");
                 let idx = c.rating.parse::<usize>().unwrap_or(0).min(config::RATINGS.len() - 1);
@@ -609,104 +678,118 @@ impl App {
                     });
                 ui.end_row();
                 ui.label("VATSIM password");
-                ui.add(egui::TextEdit::singleline(&mut c.password).password(true));
+                ui.add_sized([360.0, 30.0], egui::TextEdit::singleline(&mut c.password).password(true));
+                hint(ui, c.password.is_empty(), "Required");
                 ui.end_row();
                 ui.label("Hoppie CPDLC code");
-                ui.text_edit_singleline(&mut c.cpdlc);
+                ui.add_sized([360.0, 30.0], egui::TextEdit::singleline(&mut c.cpdlc).hint_text("optional"));
                 ui.end_row();
             });
-            Self::yes_no(ui, "Enable DiscordEuroscope plugin (shows where you're controlling)", &mut c.discord_presence);
-            ui.label("Text size (metar, chat and list headers)");
-            ui.horizontal(|ui| {
-                for (key, label, _) in config::FONT_OPTIONS {
-                    ui.radio_value(&mut c.font_size, key.to_string(), *label);
                 }
-            });
-            ui.separator();
-            ui.label("Screen layout");
-            ui.label(
-                "Move your windows in EuroScope and save your ASRs, then save your layout. It is compared \
-                 against a fresh copy of your installed pack version and re-applied whenever you apply configuration.",
-            );
-            ui.horizontal(|ui| {
-                let idle = self.job.is_none();
-                if ui.add_enabled(idle, egui::Button::new("Save current layout")).clicked() {
-                    let release = self.state.pack_version.and_then(|v| {
-                        self.manifest.as_ref()?.releases.iter().find(|r| r.version == v).cloned()
+
+                ConfigTab::Appearance => {
+                    egui::Grid::new("appearance").num_columns(2).spacing([16.0, 12.0]).show(ui, |ui| {
+                        ui.label("Text size");
+                        egui::ComboBox::from_id_salt("font_size").selected_text(font).show_ui(ui, |ui| {
+                            for (key, label, _) in config::FONT_OPTIONS {
+                                ui.selectable_value(&mut c.font_size, key.to_string(), *label);
+                            }
+                        });
+                        ui.end_row();
+                        Self::choice_ui(ui, &mut self.textures, "coastline", "Coastline colour", config::COAST_OPTIONS, &mut c.coast_choice);
+                        Self::choice_ui(ui, &mut self.textures, "land", "Land colour", config::LAND_OPTIONS, &mut c.land_choice);
                     });
-                    match release {
-                        Some(release) => {
-                            let (pack, shared) = (dir.clone(), download::Shared::default());
-                            let worker = shared.clone();
-                            let handle = std::thread::spawn(move || {
-                                let pristine = pack::fetch_pristine_asrs(&release, &worker)?;
-                                layout::save_changes(&pack, &pristine).map(|_| ())
+                    ui.add_space(8.0);
+                    ui.weak("Text size applies to metar, chat and list headers. Open a colour list and hover an entry to preview it.");
+                }
+
+                ConfigTab::Controlling => {
+                    Self::yes_no(ui, "Realistic datablocks for LAC/LTC (no climb/descent arrows)", &mut c.realistic_tags);
+                    Self::yes_no(ui, "Realistic code/callsign conversion", &mut c.realistic_conversion);
+                    Self::yes_no(ui, "DiscordEuroscope plugin (shows where you're controlling)", &mut c.discord_presence);
+                    ui.horizontal(|ui| {
+                        ui.label("RDF (radio direction finding)");
+                        egui::ComboBox::from_id_salt("rdf").selected_text(rdf).show_ui(ui, |ui| {
+                            for (key, label) in config::RDF_OPTIONS {
+                                ui.selectable_value(&mut c.rdf_mode, key.to_string(), *label);
+                            }
+                        });
+                    });
+                    ui.horizontal(|ui| {
+                        let bound = if c.asel_key.is_empty() {
+                            "default (NUMPLUS)".to_string()
+                        } else {
+                            config::asel_name(&c.asel_key).unwrap_or_else(|| format!("custom (code {})", c.asel_key))
+                        };
+                        ui.label(format!("ASEL key: {bound}"));
+                        if self.capturing_asel {
+                            ui.label("Press a key (Esc to cancel)...");
+                        } else if ui.button("Set").clicked() {
+                            self.capturing_asel = true;
+                        }
+                        if !c.asel_key.is_empty() && ui.button("Reset").clicked() {
+                            c.asel_key.clear();
+                        }
+                    });
+                }
+
+                ConfigTab::Layout => {
+                    ui.weak("Move your windows in EuroScope and save your ASRs, then save your layout. It is re-applied whenever you apply configuration.");
+                    ui.horizontal(|ui| {
+                        let idle = self.job.is_none();
+                        if ui.add_enabled(idle, egui::Button::new("Save current layout")).clicked() {
+                            let release = self.state.pack_version.and_then(|v| {
+                                self.manifest.as_ref()?.releases.iter().find(|r| r.version == v).cloned()
                             });
-                            self.job = Some(Job { shared, handle });
-                            self.status.clear();
+                            match release {
+                                Some(release) => {
+                                    let (pack, shared) = (dir.clone(), download::Shared::default());
+                                    let worker = shared.clone();
+                                    let handle = std::thread::spawn(move || {
+                                        let pristine = pack::fetch_pristine_asrs(&release, &worker)?;
+                                        layout::save_changes(&pack, &pristine).map(|_| ())
+                                    });
+                                    self.job = Some(Job { shared, handle });
+                                    self.status.clear();
+                                }
+                                None => {
+                                    self.status = "Installed pack version not found in the release list (offline?).".into()
+                                }
+                            }
                         }
-                        None => {
-                            self.status = "Installed pack version not found in the release list (offline?).".into()
+                        if ui.add_enabled(saved > 0, egui::Button::new("Clear saved layout")).clicked() {
+                            self.status = match layout::clear_layout() {
+                                Ok(()) => "Saved layout cleared.".into(),
+                                Err(e) => format!("Could not clear layout: {e}"),
+                            };
                         }
-                    }
+                    });
+                    ui.label(if saved > 0 { format!("{saved} ASR file(s) with saved changes") } else { "No layout saved yet.".into() });
                 }
-                let saved = layout::load_layout().len();
-                if ui.add_enabled(saved > 0, egui::Button::new("Clear saved layout")).clicked() {
-                    self.status = match layout::clear_layout() {
-                        Ok(()) => "Saved layout cleared.".into(),
-                        Err(e) => format!("Could not clear layout: {e}"),
-                    };
-                }
-                ui.label(format!("{saved} ASR file(s) with saved changes"));
-            });
-            ui.separator();
-            ui.checkbox(&mut c.advanced_config, "Configure advanced options");
-            if c.advanced_config {
-                Self::yes_no(ui, "Realistic datablocks for LAC/LTC (no climb/descent arrows)", &mut c.realistic_tags);
-                Self::yes_no(ui, "Realistic code/callsign conversion", &mut c.realistic_conversion);
-                Self::choice_ui(ui, &mut self.textures, "coastline", "Coastline colour", config::COAST_OPTIONS, &mut c.coast_choice);
-                Self::choice_ui(ui, &mut self.textures, "land", "Land colour", config::LAND_OPTIONS, &mut c.land_choice);
-                ui.label("RDF (radio direction finding)");
-                for (key, label) in config::RDF_OPTIONS {
-                    ui.radio_value(&mut c.rdf_mode, key.to_string(), *label);
-                }
-                ui.horizontal(|ui| {
-                    let bound = if c.asel_key.is_empty() {
-                        "default (NUMPLUS)".to_string()
-                    } else {
-                        config::asel_name(&c.asel_key).unwrap_or_else(|| format!("custom (code {})", c.asel_key))
-                    };
-                    ui.label(format!("ASEL key: {bound}"));
-                    if self.capturing_asel {
-                        ui.label("Press a key (Esc to cancel)...");
-                    } else if ui.button("Set ASEL key").clicked() {
-                        self.capturing_asel = true;
-                    }
-                    if !c.asel_key.is_empty() && ui.button("Reset").clicked() {
-                        c.asel_key.clear();
-                    }
-                });
             }
         });
-        ui.separator();
+        ui.add_space(6.0);
         self.progress_ui(ui);
         let idle = self.job.is_none();
-        if ui.add_enabled(idle, egui::Button::new("Save and apply")).clicked() {
-            match self.config.validate() {
-                Some(msg) => self.status = msg.to_string(),
-                None => {
-                    let cfg = self.config.clone();
-                    let shared = download::Shared::default();
-                    let worker = shared.clone();
-                    let handle = std::thread::spawn(move || {
-                        config::save(&cfg)?;
-                        config::apply(&cfg, &dir, &worker)
-                    });
-                    self.job = Some(Job { shared, handle });
-                    self.status.clear();
-                }
+        ui.horizontal(|ui| {
+            let button = egui::Button::new(egui::RichText::new("Save and apply").size(18.0).strong())
+                .fill(ui.visuals().selection.bg_fill)
+                .min_size(egui::vec2(200.0, 40.0));
+            if ui.add_enabled(idle && problem.is_none(), button).clicked() {
+                let cfg = self.config.clone();
+                let shared = download::Shared::default();
+                let worker = shared.clone();
+                let handle = std::thread::spawn(move || {
+                    config::save(&cfg)?;
+                    config::apply(&cfg, &dir, &worker)
+                });
+                self.job = Some(Job { shared, handle });
+                self.status.clear();
             }
-        }
+            if let Some(msg) = problem {
+                ui.colored_label(egui::Color32::LIGHT_RED, format!("Complete your details: {msg}"));
+            }
+        });
     }
 }
 

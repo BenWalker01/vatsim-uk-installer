@@ -28,14 +28,31 @@ fn app_icon() -> eframe::egui::IconData {
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([720.0, 480.0])
+            .with_inner_size([860.0, 620.0])
             .with_icon(app_icon()),
         ..Default::default()
     };
     eframe::run_native(
         "VATSIM UK Installer",
         options,
-        Box::new(|_cc| Ok(Box::new(app::App::new()))),
+        Box::new(|cc| {
+            use eframe::egui::{FontId, TextStyle};
+            cc.egui_ctx.all_styles_mut(|style| {
+                for (text_style, size) in [
+                    (TextStyle::Body, 16.0),
+                    (TextStyle::Button, 16.0),
+                    (TextStyle::Small, 13.0),
+                    (TextStyle::Monospace, 15.0),
+                    (TextStyle::Heading, 26.0),
+                ] {
+                    style.text_styles.insert(text_style, FontId::proportional(size));
+                }
+                style.spacing.item_spacing = [10.0, 8.0].into();
+                style.spacing.button_padding = [10.0, 5.0].into();
+                style.spacing.interact_size.y = 26.0;
+            });
+            Ok(Box::new(app::App::new()))
+        }),
     )
 }
 
