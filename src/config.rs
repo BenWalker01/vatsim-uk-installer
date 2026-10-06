@@ -21,6 +21,19 @@ pub const LAND_OPTIONS: &[(&str, &str, &str)] = &[
     ("3", "Light grey", "8158332"),
 ];
 
+/// Embedded preview image for a coastline (`"coastline"`) or land (`"land"`) option.
+pub fn preview_bytes(kind: &str, key: &str) -> Option<&'static [u8]> {
+    Some(match (kind, key) {
+        ("coastline", "1") => include_bytes!("../data/coastline1.png"),
+        ("coastline", "2") => include_bytes!("../data/coastline2.png"),
+        ("coastline", "3") => include_bytes!("../data/coastline3.png"),
+        ("land", "1") => include_bytes!("../data/land1.png"),
+        ("land", "2") => include_bytes!("../data/land2.png"),
+        ("land", "3") => include_bytes!("../data/land3.png"),
+        _ => return None,
+    })
+}
+
 /// Field names and `y`/`n` flags match the original configurator's JSON so existing files load unchanged.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]

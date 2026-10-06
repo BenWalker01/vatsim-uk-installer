@@ -42,6 +42,7 @@ pub struct App {
     job: Option<Job>,
     config: Config,
     capturing_asel: bool,
+    textures: std::collections::HashMap<String, egui::TextureHandle>,
 }
 
 struct Job {
@@ -62,6 +63,7 @@ impl App {
             job: None,
             config: Config::default(),
             capturing_asel: false,
+            textures: Default::default(),
         };
         app.refresh();
         app.reload_state();
@@ -293,16 +295,47 @@ impl App {
         }
     }
 
-    fn choice_ui(ui: &mut egui::Ui, title: &str, options: &[(&str, &str, &str)], value: &mut String) {
+    fn choice_ui(
+        ui: &mut egui::Ui,
+        textures: &mut std::collections::HashMap<String, egui::TextureHandle>,
+        kind: &str,
+        title: &str,
+        options: &[(&str, &str, &str)],
+        value: &mut String,
+    ) {
         ui.label(title);
         for (key, desc, color) in options {
             ui.horizontal(|ui| {
                 let c = color.parse::<u32>().unwrap_or(0);
                 // Stored colours are BGR (Windows COLORREF).
                 let swatch = egui::Color32::from_rgb(c as u8, (c >> 8) as u8, (c >> 16) as u8);
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+                let (rect, swatch_resp) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
                 ui.painter().rect_filled(rect, 2.0, swatch);
-                ui.radio_value(value, key.to_string(), *desc);
+                let radio = ui.radio_value(value, key.to_string(), *desc);
+                let id = format!("{kind}{key}");
+                if !textures.contains_key(&id) {
+                    if let Some(tex) = config::preview_bytes(kind, key)
+                        .and_then(|b| image::load_from_memory(b).ok())
+                        .map(|img| {
+                            let img = img.into_rgba8();
+                            let size = [img.width() as usize, img.height() as usize];
+                            ui.ctx().load_texture(
+                                id.clone(),
+                                egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw()),
+                                egui::TextureOptions::LINEAR,
+                            )
+                        })
+                    {
+                        textures.insert(id.clone(), tex);
+                    }
+                }
+                if let Some(tex) = textures.get(&id) {
+                    let tip = |ui: &mut egui::Ui| {
+                        ui.add(egui::Image::new(tex).max_width(320.0));
+                    };
+                    swatch_resp.on_hover_ui(tip);
+                    radio.on_hover_ui(tip);
+                }
             });
         }
     }
@@ -367,8 +400,8 @@ impl App {
             if c.advanced_config {
                 Self::yes_no(ui, "Realistic datablocks for LAC/LTC (no climb/descent arrows)", &mut c.realistic_tags);
                 Self::yes_no(ui, "Realistic code/callsign conversion", &mut c.realistic_conversion);
-                Self::choice_ui(ui, "Coastline colour", config::COAST_OPTIONS, &mut c.coast_choice);
-                Self::choice_ui(ui, "Land colour", config::LAND_OPTIONS, &mut c.land_choice);
+                Self::choice_ui(ui, &mut self.textures, "coastline", "Coastline colour", config::COAST_OPTIONS, &mut c.coast_choice);
+                Self::choice_ui(ui, &mut self.textures, "land", "Land colour", config::LAND_OPTIONS, &mut c.land_choice);
                 ui.horizontal(|ui| {
                     let bound = if c.asel_key.is_empty() {
                         "default (NUMPLUS)".to_string()
