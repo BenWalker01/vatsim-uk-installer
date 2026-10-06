@@ -31,7 +31,17 @@ const STEPS: &[(Step, &str)] = &[
     (Step::Done, "Finish"),
 ];
 
+#[derive(Clone, Copy, Default)]
+struct UpdateOptions {
+    backup: bool,
+    save_layout: bool,
+    apply_config: bool,
+}
+
 pub struct App {
+    /// Guided mode: sidebar navigation is locked until setup has been completed.
+    wizard: bool,
+    confirm_update: Option<UpdateOptions>,
     step: Step,
     state: State,
     manifest: Option<Manifest>,
@@ -53,6 +63,8 @@ struct Job {
 impl App {
     pub fn new() -> Self {
         let mut app = App {
+            wizard: true,
+            confirm_update: None,
             step: Step::Welcome,
             state: State::load(),
             manifest: None,
@@ -68,6 +80,7 @@ impl App {
         app.refresh();
         app.reload_state();
         app.config = config::load(app.pack_dir().as_deref());
+        app.wizard = !app.setup_complete();
         app
     }
 
@@ -186,20 +199,84 @@ impl App {
         self.state.pack_dir.clone().or_else(pack::default_dir)
     }
 
-    /// Start installing/updating the pack on a worker thread.
-    fn start_update(&mut self) {
+    /// Whether everything the wizard sets up is in place.
+    fn setup_complete(&self) -> bool {
+        self.euroscope_ok() && self.vcredist && self.state.pack_version.is_some()
+    }
+
+    fn euroscope_ok(&self) -> bool {
+        let Some(d) = &self.euroscope else { return false };
+        match &self.manifest {
+            Some(m) => d
+                .version
+                .as_deref()
+                .is_some_and(|v| euroscope::is_required_version(v, &m.euroscope.required_version)),
+            None => true,
+        }
+    }
+
+    /// Whether the current wizard step is satisfied so the user may continue.
+    fn step_satisfied(&self) -> bool {
+        match self.step {
+            Step::EuroScope => self.euroscope_ok(),
+            Step::VcRedist => self.vcredist,
+            Step::ControllerPack => self.state.pack_version.is_some(),
+            _ => true,
+        }
+    }
+
+    /// Start installing/updating the pack on a worker thread, optionally backing up and preserving the layout first.
+    fn start_update(&mut self, opts: UpdateOptions) {
         self.refresh_pack_version();
         let (Some(m), Some(dir)) = (&self.manifest, self.pack_dir()) else {
             self.status = "Update information unavailable".into();
             return;
         };
-        let Some(plan) = updater::plan(m, self.state.pack_version) else {
+        let installed = self.state.pack_version;
+        let Some(plan) = updater::plan(m, installed) else {
             self.status = "No releases found".into();
             return;
         };
+        let installed_release = installed.and_then(|v| m.releases.iter().find(|r| r.version == v).cloned());
+        if opts.save_layout && installed_release.is_none() {
+            self.status = "Cannot save positions: installed pack version not found in the release list.".into();
+            return;
+        }
+        let cfg = if opts.apply_config {
+            if !config::exists(Some(&dir)) {
+                self.status = "No saved settings to apply; configure them first or untick that option.".into();
+                return;
+            }
+            let c = config::load(Some(&dir));
+            if let Some(msg) = c.validate() {
+                self.status = format!("Saved settings are incomplete: {msg}");
+                return;
+            }
+            Some(c)
+        } else {
+            None
+        };
         let shared = download::Shared::default();
         let worker = shared.clone();
-        let handle = std::thread::spawn(move || updater::execute(plan, &dir, &worker));
+        let handle = std::thread::spawn(move || {
+            if opts.backup {
+                pack::backup(&dir, &worker)?;
+            }
+            if let (true, Some(release)) = (opts.save_layout, &installed_release) {
+                let pristine = pack::fetch_pristine_asrs(release, &worker)?;
+                layout::save_changes(&dir, &pristine)?;
+            }
+            updater::execute(plan, &dir, &worker)?;
+            match &cfg {
+                // Also re-applies any saved screen layout.
+                Some(cfg) => config::apply(cfg, &dir, &worker)?,
+                None if opts.save_layout => {
+                    layout::apply(&dir)?;
+                }
+                None => {}
+            }
+            Ok(())
+        });
         self.job = Some(Job { shared, handle });
         self.status.clear();
     }
@@ -250,7 +327,7 @@ impl App {
         if self.state.pack_version.is_none()
             && ui.add_enabled(idle, egui::Button::new("Install controller pack")).clicked()
         {
-            self.start_update();
+            self.start_update(UpdateOptions::default());
         }
     }
 
@@ -284,7 +361,35 @@ impl App {
         }
         self.progress_ui(ui);
         if start {
-            self.start_update();
+            if self.state.pack_version.is_some() {
+                self.confirm_update = Some(UpdateOptions {
+                    backup: true,
+                    save_layout: true,
+                    apply_config: config::exists(self.pack_dir().as_deref()),
+                });
+            } else {
+                self.start_update(UpdateOptions::default());
+            }
+        }
+        if let Some(mut opts) = self.confirm_update {
+            ui.separator();
+            ui.label("Before updating your pack:");
+            ui.checkbox(&mut opts.backup, "Back up my existing pack first");
+            ui.checkbox(&mut opts.save_layout, "Save the position of my items on screen and re-apply them after updating");
+            ui.checkbox(&mut opts.apply_config, "Re-apply my previous settings (name, tags, colours, etc.) after updating");
+            let (mut go, mut cancel) = (false, false);
+            ui.horizontal(|ui| {
+                go = ui.button("Continue").clicked();
+                cancel = ui.button("Cancel").clicked();
+            });
+            if go {
+                self.confirm_update = None;
+                self.start_update(opts);
+            } else if cancel {
+                self.confirm_update = None;
+            } else {
+                self.confirm_update = Some(opts);
+            }
         }
     }
 
@@ -494,8 +599,18 @@ impl eframe::App for App {
         self.poll_job(ui);
         egui::Panel::left("steps").show(ui, |ui| {
             ui.heading("Setup");
-            for (s, name) in STEPS {
-                if ui.selectable_label(self.step == *s, *name).clicked() {
+            let current = STEPS.iter().position(|(s, _)| *s == self.step).unwrap_or(0);
+            for (i, (s, name)) in STEPS.iter().enumerate() {
+                if self.wizard {
+                    let text = if i == current {
+                        egui::RichText::new(*name).strong().color(ui.visuals().selection.stroke.color)
+                    } else if i < current {
+                        egui::RichText::new(format!("✔ {name}"))
+                    } else {
+                        egui::RichText::new(*name).weak()
+                    };
+                    ui.label(text);
+                } else if ui.selectable_label(self.step == *s, *name).clicked() {
                     self.step = *s;
                 }
             }
@@ -505,8 +620,12 @@ impl eframe::App for App {
             ui.horizontal(|ui| {
                 ui.label(&self.status);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if self.step != Step::Done && ui.button("Next").clicked() {
+                    let ready = !self.wizard || (self.step_satisfied() && self.job.is_none());
+                    if self.step != Step::Done && ui.add_enabled(ready, egui::Button::new("Next")).clicked() {
                         self.next();
+                    }
+                    if self.wizard && self.step == Step::Done && ui.button("Finish").clicked() {
+                        self.wizard = false;
                     }
                 });
             });
