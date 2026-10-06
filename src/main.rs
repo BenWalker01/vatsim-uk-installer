@@ -36,7 +36,7 @@ fn main() -> eframe::Result {
         "VATSIM UK Installer",
         options,
         Box::new(|cc| {
-            use eframe::egui::{FontId, TextStyle};
+            use eframe::egui::{Color32, FontId, Stroke, TextStyle, Visuals};
             cc.egui_ctx.all_styles_mut(|style| {
                 for (text_style, size) in [
                     (TextStyle::Body, 16.0),
@@ -45,11 +45,30 @@ fn main() -> eframe::Result {
                     (TextStyle::Monospace, 15.0),
                     (TextStyle::Heading, 26.0),
                 ] {
-                    style.text_styles.insert(text_style, FontId::proportional(size));
+                    style
+                        .text_styles
+                        .insert(text_style, FontId::proportional(size));
                 }
-                style.spacing.item_spacing = [10.0, 8.0].into();
-                style.spacing.button_padding = [10.0, 5.0].into();
-                style.spacing.interact_size.y = 26.0;
+                style.spacing.item_spacing = [12.0, 10.0].into();
+                style.spacing.button_padding = [14.0, 8.0].into();
+                style.spacing.interact_size.y = 34.0;
+                let mut visuals = Visuals::dark();
+                visuals.panel_fill = Color32::from_rgb(25, 28, 33);
+                visuals.window_fill = Color32::from_rgb(32, 36, 42);
+                visuals.extreme_bg_color = Color32::from_rgb(19, 22, 26);
+                visuals.faint_bg_color = Color32::from_rgb(39, 44, 51);
+                visuals.selection.bg_fill = Color32::from_rgb(47, 71, 96);
+                visuals.selection.stroke = Stroke::new(1.0, Color32::from_rgb(117, 169, 222));
+                visuals.widgets.inactive.bg_fill = Color32::from_rgb(39, 44, 51);
+                visuals.widgets.inactive.bg_stroke =
+                    Stroke::new(1.0, Color32::from_rgb(57, 64, 73));
+                visuals.widgets.hovered.bg_fill = Color32::from_rgb(48, 56, 66);
+                visuals.widgets.hovered.bg_stroke =
+                    Stroke::new(1.0, Color32::from_rgb(91, 117, 145));
+                visuals.widgets.active.bg_fill = Color32::from_rgb(47, 71, 96);
+                visuals.widgets.active.bg_stroke =
+                    Stroke::new(1.0, Color32::from_rgb(117, 169, 222));
+                style.visuals = visuals;
             });
             Ok(Box::new(app::App::new()))
         }),

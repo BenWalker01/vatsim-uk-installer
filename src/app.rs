@@ -1,8 +1,9 @@
 //! UI: a sidebar of wizard steps plus a content panel.
 
 use crate::{
+    backup,
     config::{self, Config},
-    backup, download, euroscope, layout,
+    download, euroscope, layout,
     manifest::Manifest,
     pack,
     state::State,
@@ -84,6 +85,35 @@ struct Job {
 }
 
 impl App {
+    fn step_description(&self) -> &'static str {
+        match self.step {
+            Step::Welcome => "A short setup to get your UK controller pack ready.",
+            Step::EuroScope => {
+                "Install the supported EuroScope version, or check the one already on your PC."
+            }
+            Step::VcRedist => "EuroScope needs this Microsoft runtime to run.",
+            Step::ControllerPack => "Install the UK sector files and controller resources.",
+            Step::Updates => "Keep your controller pack current without losing your settings.",
+            Step::Configure => "Add your details and choose how EuroScope looks and behaves.",
+            Step::Backups => "Restore a saved copy of your controller pack if you need to.",
+            Step::Done => "The essentials are in place. You can change settings any time.",
+        }
+    }
+
+    fn setup_status(&self, step: Step) -> (&'static str, egui::Color32) {
+        let ready = match step {
+            Step::EuroScope => self.euroscope_ok(),
+            Step::VcRedist => self.vcredist,
+            Step::ControllerPack => self.state.pack_version.is_some(),
+            _ => false,
+        };
+        if ready {
+            ("Ready", egui::Color32::from_rgb(110, 190, 145))
+        } else {
+            ("Not set up", egui::Color32::from_rgb(158, 165, 174))
+        }
+    }
+
     pub fn new() -> Self {
         let mut app = App {
             wizard: true,
@@ -126,7 +156,11 @@ impl App {
 
     /// Steps shown in the sidebar; the Backups page only appears once setup is complete.
     fn steps(&self) -> Vec<(Step, &'static str)> {
-        STEPS.iter().copied().filter(|(s, _)| !(self.wizard && *s == Step::Backups)).collect()
+        STEPS
+            .iter()
+            .copied()
+            .filter(|(s, _)| !(self.wizard && *s == Step::Backups))
+            .collect()
     }
 
     fn next(&mut self) {
@@ -162,7 +196,8 @@ impl App {
                         if ui.button("Open uninstall options").clicked() {
                             self.status = match euroscope::open_uninstaller() {
                                 Ok(()) => {
-                                    "Uninstall EuroScope in Installed apps, then click Re-check.".into()
+                                    "Uninstall EuroScope in Installed apps, then click Re-check."
+                                        .into()
                                 }
                                 Err(e) => format!("Could not open uninstall options: {e}"),
                             };
@@ -201,7 +236,10 @@ impl App {
         if self.vcredist {
             ui.label("Visual C++ Redistributable (x86) is installed.");
         } else {
-            ui.colored_label(egui::Color32::LIGHT_RED, "Visual C++ Redistributable not found.");
+            ui.colored_label(
+                egui::Color32::LIGHT_RED,
+                "Visual C++ Redistributable not found.",
+            );
             if ui.button("Install").clicked() {
                 self.status = match self.manifest.as_ref() {
                     Some(m) => vcredist::install(&m.vcredist_url)
@@ -238,7 +276,9 @@ impl App {
     }
 
     fn euroscope_ok(&self) -> bool {
-        let Some(d) = &self.euroscope else { return false };
+        let Some(d) = &self.euroscope else {
+            return false;
+        };
         match &self.manifest {
             Some(m) => d
                 .version
@@ -270,14 +310,19 @@ impl App {
             self.status = "No releases found".into();
             return;
         };
-        let installed_release = installed.and_then(|v| m.releases.iter().find(|r| r.version == v).cloned());
+        let installed_release =
+            installed.and_then(|v| m.releases.iter().find(|r| r.version == v).cloned());
         if opts.save_layout && installed_release.is_none() {
-            self.status = "Cannot save positions: installed pack version not found in the release list.".into();
+            self.status =
+                "Cannot save positions: installed pack version not found in the release list."
+                    .into();
             return;
         }
         let cfg = if opts.apply_config {
             if !config::exists(Some(&dir)) {
-                self.status = "No saved settings to apply; configure them first or untick that option.".into();
+                self.status =
+                    "No saved settings to apply; configure them first or untick that option."
+                        .into();
                 return;
             }
             let c = config::load(Some(&dir));
@@ -298,7 +343,9 @@ impl App {
             let pristine = match (opts.save_layout, installed_release) {
                 (true, Some(release)) => {
                     let w = worker.clone();
-                    Some(std::thread::spawn(move || pack::fetch_pristine_asrs(&release, &w)))
+                    Some(std::thread::spawn(move || {
+                        pack::fetch_pristine_asrs(&release, &w)
+                    }))
                 }
                 _ => None,
             };
@@ -306,7 +353,9 @@ impl App {
                 backup::create(&dir, tag.as_deref(), keep, &worker)?;
             }
             if let Some(h) = pristine {
-                let pristine = h.join().map_err(|_| anyhow::anyhow!("layout download panicked"))??;
+                let pristine = h
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("layout download panicked"))??;
                 layout::save_changes(&dir, &pristine)?;
             }
             updater::execute(plan, &dir, &worker)?;
@@ -369,7 +418,9 @@ impl App {
         self.progress_ui(ui);
         let idle = self.job.is_none();
         if self.state.pack_version.is_none()
-            && ui.add_enabled(idle, egui::Button::new("Install controller pack")).clicked()
+            && ui
+                .add_enabled(idle, egui::Button::new("Install controller pack"))
+                .clicked()
         {
             self.start_update(UpdateOptions::default());
         }
@@ -419,8 +470,14 @@ impl App {
             ui.separator();
             ui.label("Before updating your pack:");
             ui.checkbox(&mut opts.backup, "Back up my existing pack first");
-            ui.checkbox(&mut opts.save_layout, "Save the position of my items on screen and re-apply them after updating");
-            ui.checkbox(&mut opts.apply_config, "Re-apply my previous settings (name, tags, colours, etc.) after updating");
+            ui.checkbox(
+                &mut opts.save_layout,
+                "Save the position of my items on screen and re-apply them after updating",
+            );
+            ui.checkbox(
+                &mut opts.apply_config,
+                "Re-apply my previous settings (name, tags, colours, etc.) after updating",
+            );
             let (mut go, mut cancel) = (false, false);
             ui.horizontal(|ui| {
                 go = ui.button("Continue").clicked();
@@ -442,7 +499,11 @@ impl App {
         if self.backups_dirty {
             self.backups = backup::list();
             self.backups_dirty = false;
-            if !self.backups.iter().any(|b| Some(&b.path) == self.selected_backup.as_ref().map(|(p, _)| p)) {
+            if !self
+                .backups
+                .iter()
+                .any(|b| Some(&b.path) == self.selected_backup.as_ref().map(|(p, _)| p))
+            {
                 self.selected_backup = None;
             }
         }
@@ -450,7 +511,10 @@ impl App {
         let mut keep = self.state.backups_to_keep.unwrap_or(backup::DEFAULT_KEEP);
         ui.horizontal(|ui| {
             ui.label("Backups to keep:");
-            if ui.add(egui::DragValue::new(&mut keep).range(1..=50)).changed() {
+            if ui
+                .add(egui::DragValue::new(&mut keep).range(1..=50))
+                .changed()
+            {
                 let mut s = State::load();
                 s.backups_to_keep = Some(keep);
                 self.status = match s.save().and_then(|_| backup::prune(keep)) {
@@ -471,31 +535,49 @@ impl App {
             return;
         }
         let mut select = None;
-        egui::ScrollArea::vertical().id_salt("backup_list").max_height(180.0).show(ui, |ui| {
-            for b in &self.backups {
-                let label = format!("{}  -  {}  ({:.1} MB)", b.name(), b.date(), b.size as f64 / 1_048_576.0);
-                let on = self.selected_backup.as_ref().is_some_and(|(p, _)| *p == b.path);
-                if ui.selectable_label(on, label).clicked() {
-                    select = Some(b.clone());
+        egui::ScrollArea::vertical()
+            .id_salt("backup_list")
+            .max_height(180.0)
+            .show(ui, |ui| {
+                for b in &self.backups {
+                    let label = format!(
+                        "{}  -  {}  ({:.1} MB)",
+                        b.name(),
+                        b.date(),
+                        b.size as f64 / 1_048_576.0
+                    );
+                    let on = self
+                        .selected_backup
+                        .as_ref()
+                        .is_some_and(|(p, _)| *p == b.path);
+                    if ui.selectable_label(on, label).clicked() {
+                        select = Some(b.clone());
+                    }
                 }
-            }
-        });
+            });
         if let Some(b) = select {
             let files = backup::contents(&b).map_err(|e| e.to_string());
             self.selected_backup = Some((b.path.clone(), files));
         }
-        let Some((path, files)) = &self.selected_backup else { return };
-        let Some(b) = self.backups.iter().find(|b| &b.path == path).cloned() else { return };
+        let Some((path, files)) = &self.selected_backup else {
+            return;
+        };
+        let Some(b) = self.backups.iter().find(|b| &b.path == path).cloned() else {
+            return;
+        };
         ui.separator();
         ui.label(format!("Contents of {} ({}):", b.name(), b.date()));
         match files {
             Ok(f) => {
                 ui.label(format!("{} file(s)", f.len()));
-                egui::ScrollArea::vertical().id_salt("backup_files").max_height(200.0).show(ui, |ui| {
-                    for name in f {
-                        ui.monospace(name);
-                    }
-                });
+                egui::ScrollArea::vertical()
+                    .id_salt("backup_files")
+                    .max_height(200.0)
+                    .show(ui, |ui| {
+                        for name in f {
+                            ui.monospace(name);
+                        }
+                    });
             }
             Err(e) => {
                 ui.colored_label(egui::Color32::LIGHT_RED, e);
@@ -504,7 +586,9 @@ impl App {
         ui.separator();
         let mut restore = false;
         ui.horizontal(|ui| {
-            restore = ui.add_enabled(idle, egui::Button::new("Restore this backup")).clicked();
+            restore = ui
+                .add_enabled(idle, egui::Button::new("Restore this backup"))
+                .clicked();
             if ui.add_enabled(idle, egui::Button::new("Delete")).clicked() {
                 self.status = match backup::delete(&b) {
                     Ok(()) => "Backup deleted.".into(),
@@ -547,8 +631,11 @@ impl App {
         let swatch = |ui: &mut egui::Ui, color: &str| {
             let c = color.parse::<u32>().unwrap_or(0);
             let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
-            ui.painter()
-                .rect_filled(rect, 2.0, egui::Color32::from_rgb(c as u8, (c >> 8) as u8, (c >> 16) as u8));
+            ui.painter().rect_filled(
+                rect,
+                2.0,
+                egui::Color32::from_rgb(c as u8, (c >> 8) as u8, (c >> 16) as u8),
+            );
             ui.painter().rect_stroke(
                 rect,
                 2.0,
@@ -578,7 +665,10 @@ impl App {
         }
         ui.label(title);
         ui.horizontal(|ui| {
-            let current = options.iter().find(|(k, _, _)| *k == value.as_str()).unwrap_or(&options[0]);
+            let current = options
+                .iter()
+                .find(|(k, _, _)| *k == value.as_str())
+                .unwrap_or(&options[0]);
             swatch(ui, current.2);
             egui::ComboBox::from_id_salt(kind)
                 .width(380.0)
@@ -608,7 +698,10 @@ impl App {
                 if vk != 0x1B {
                     match config::asel_from_vk(vk) {
                         Some(code) => self.config.asel_key = code,
-                        None => self.status = "Could not map that key; keeping the previous bind.".into(),
+                        None => {
+                            self.status =
+                                "Could not map that key; keeping the previous bind.".into()
+                        }
                     }
                 }
             }
@@ -621,9 +714,12 @@ impl App {
             ui.label("Install the controller pack first.");
             return;
         }
-        let from_pack = config::local_path().is_some_and(|p| !p.exists()) && config::exists(Some(&dir));
+        let from_pack =
+            config::local_path().is_some_and(|p| !p.exists()) && config::exists(Some(&dir));
         if from_pack {
-            ui.label("Loaded your existing settings from the pack; saving will store them locally.");
+            ui.label(
+                "Loaded your existing settings from the pack; saving will store them locally.",
+            );
         }
         let problem = self.config.validate();
         ui.horizontal(|ui| {
@@ -772,9 +868,10 @@ impl App {
         self.progress_ui(ui);
         let idle = self.job.is_none();
         ui.horizontal(|ui| {
-            let button = egui::Button::new(egui::RichText::new("Save and apply").size(18.0).strong())
-                .fill(ui.visuals().selection.bg_fill)
-                .min_size(egui::vec2(200.0, 40.0));
+            let button =
+                egui::Button::new(egui::RichText::new("Save and apply").size(18.0).strong())
+                    .fill(ui.visuals().selection.bg_fill)
+                    .min_size(egui::vec2(200.0, 40.0));
             if ui.add_enabled(idle && problem.is_none(), button).clicked() {
                 let cfg = self.config.clone();
                 let shared = download::Shared::default();
@@ -787,7 +884,10 @@ impl App {
                 self.status.clear();
             }
             if let Some(msg) = problem {
-                ui.colored_label(egui::Color32::LIGHT_RED, format!("Complete your details: {msg}"));
+                ui.colored_label(
+                    egui::Color32::LIGHT_RED,
+                    format!("Complete your details: {msg}"),
+                );
             }
         });
     }
@@ -796,79 +896,213 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_job(ui);
-        egui::Panel::left("steps").show(ui, |ui| {
-            ui.heading("Setup");
-            let steps = self.steps();
-            let current = steps.iter().position(|(s, _)| *s == self.step).unwrap_or(0);
-            for (i, (s, name)) in steps.iter().enumerate() {
-                if self.wizard {
-                    let text = if i == current {
-                        egui::RichText::new(*name).strong().color(ui.visuals().selection.stroke.color)
-                    } else if i < current {
-                        egui::RichText::new(format!("✔ {name}"))
+        egui::Panel::left("steps")
+            .frame(
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgb(30, 34, 40))
+                    .inner_margin(egui::Margin::same(20)),
+            )
+            .show(ui, |ui| {
+                ui.heading(egui::RichText::new("VATSIM UK").strong().size(20.0));
+                ui.label(
+                    egui::RichText::new("CONTROLLER PACK")
+                        .small()
+                        .color(egui::Color32::from_rgb(150, 160, 173)),
+                );
+                ui.add_space(18.0);
+                ui.label(
+                    egui::RichText::new(if self.wizard {
+                        "SETUP"
                     } else {
-                        egui::RichText::new(*name).weak()
+                        "YOUR INSTALLATION"
+                    })
+                    .small()
+                    .strong()
+                    .color(egui::Color32::from_rgb(150, 160, 173)),
+                );
+                ui.add_space(8.0);
+                let steps = self.steps();
+                let current = steps.iter().position(|(s, _)| *s == self.step).unwrap_or(0);
+                for (i, (s, name)) in steps.iter().enumerate() {
+                    let active = self.step == *s;
+                    let completed = self.wizard && i < current;
+                    let text = if completed {
+                        egui::RichText::new(format!("✓  {name}"))
+                            .color(egui::Color32::from_rgb(110, 190, 145))
+                    } else if active {
+                        egui::RichText::new(format!("{:02}  {name}", i + 1))
+                            .color(egui::Color32::from_rgb(154, 195, 235))
+                            .strong()
+                    } else {
+                        egui::RichText::new(format!("{:02}  {name}", i + 1))
+                            .color(egui::Color32::from_rgb(184, 190, 199))
                     };
-                    ui.label(text);
-                } else if ui.selectable_label(self.step == *s, *name).clicked() {
-                    self.step = *s;
-                    self.backups_dirty = true;
+                    if self.wizard {
+                        egui::Frame::new()
+                            .fill(if active {
+                                egui::Color32::from_rgb(43, 54, 67)
+                            } else {
+                                egui::Color32::TRANSPARENT
+                            })
+                            .corner_radius(egui::CornerRadius::same(6))
+                            .inner_margin(egui::Margin::symmetric(8, 5))
+                            .show(ui, |ui| {
+                                ui.set_min_width(ui.available_width());
+                                ui.label(text);
+                            });
+                    } else if ui.selectable_label(active, text).clicked() {
+                        self.step = *s;
+                        self.backups_dirty = true;
+                    }
                 }
-            }
-        });
+                ui.add_space(16.0);
+                ui.separator();
+                ui.add_space(8.0);
+                ui.weak("EuroScope 3.2.3.2");
+            });
 
-        egui::Panel::bottom("footer").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(&self.status);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let ready = !self.wizard || (self.step_satisfied() && self.job.is_none());
-                    if self.step != Step::Done && ui.add_enabled(ready, egui::Button::new("Next")).clicked() {
-                        self.next();
+        egui::Panel::bottom("footer")
+            .frame(
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgb(30, 34, 40))
+                    .inner_margin(egui::Margin::symmetric(22, 12)),
+            )
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if !self.status.is_empty() {
+                        let is_error = self.status.starts_with("Failed:")
+                            || self.status.starts_with("Could not")
+                            || self.status.starts_with("Cannot")
+                            || self.status.starts_with("No ");
+                        ui.label(egui::RichText::new(&self.status).color(if is_error {
+                            egui::Color32::from_rgb(231, 135, 135)
+                        } else {
+                            egui::Color32::from_rgb(190, 197, 207)
+                        }));
                     }
-                    if self.wizard && self.step == Step::Done && ui.button("Finish").clicked() {
-                        self.wizard = false;
-                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let ready = !self.wizard || (self.step_satisfied() && self.job.is_none());
+                        if self.step != Step::Done
+                            && ui
+                                .add_enabled(
+                                    ready,
+                                    egui::Button::new(if self.wizard {
+                                        "Continue"
+                                    } else {
+                                        "Next"
+                                    }),
+                                )
+                                .clicked()
+                        {
+                            self.next();
+                        }
+                        if self.wizard && self.step != Step::Welcome && ui.button("Back").clicked()
+                        {
+                            let steps = self.steps();
+                            if let Some(i) = steps.iter().position(|(s, _)| *s == self.step) {
+                                if let Some((previous, _)) =
+                                    i.checked_sub(1).and_then(|n| steps.get(n))
+                                {
+                                    self.step = *previous;
+                                }
+                            }
+                        }
+                        if self.wizard
+                            && self.step == Step::Done
+                            && ui.button("Finish setup").clicked()
+                        {
+                            self.wizard = false;
+                        }
+                    });
                 });
             });
-        });
 
-        egui::CentralPanel::default().show(ui, |ui| {
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgb(25, 28, 33))
+                    .inner_margin(egui::Margin::same(24)),
+            )
+            .show(ui, |ui| {
+            if self.wizard {
+                let steps = self.steps();
+                let current = steps.iter().position(|(s, _)| *s == self.step).unwrap_or(0);
+                ui.label(egui::RichText::new(format!("STEP {} OF {}", current + 1, steps.len()))
+                    .small().strong().color(egui::Color32::from_rgb(154, 195, 235)));
+            }
+            ui.heading(match self.step {
+                Step::Welcome => "Welcome",
+                Step::EuroScope => "EuroScope",
+                Step::VcRedist => "Microsoft Visual C++",
+                Step::ControllerPack => "UK Controller Pack",
+                Step::Updates => "Updates",
+                Step::Configure => "Your settings",
+                Step::Backups => "Backups",
+                Step::Done => "You're all set",
+            });
+            ui.label(egui::RichText::new(self.step_description())
+                .color(egui::Color32::from_rgb(176, 184, 194)));
+            ui.add_space(16.0);
+            egui::Frame::new()
+                .fill(egui::Color32::from_rgb(32, 36, 42))
+                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(53, 60, 69)))
+                .corner_radius(egui::CornerRadius::same(8))
+                .inner_margin(egui::Margin::same(20))
+                .show(ui, |ui| {
             match self.step {
                 Step::Welcome => {
-                    ui.heading("VATSIM UK Installer");
-                    ui.label("Sets up EuroScope and the UK controller pack.");
+                    ui.heading("A simpler way to get set up");
+                    ui.label("This installer checks the essentials, installs anything missing and keeps your UK controller pack up to date.");
+                    ui.add_space(16.0);
+                    ui.label(egui::RichText::new("BEFORE YOU START").small().strong()
+                        .color(egui::Color32::from_rgb(150, 160, 173)));
+                    ui.add_space(6.0);
+                    for (step, name) in [
+                        (Step::EuroScope, "EuroScope"),
+                        (Step::VcRedist, "Visual C++ runtime"),
+                        (Step::ControllerPack, "UK controller pack"),
+                    ] {
+                        let (status, color) = self.setup_status(step);
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("•").color(color).strong());
+                            ui.label(name);
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(egui::RichText::new(status).small().color(color));
+                            });
+                        });
+                    }
+                    ui.add_space(14.0);
+                    ui.weak("Your saved settings and screen layout can be kept when the pack is updated.");
                     if let Some(e) = &self.manifest_error {
-                        ui.colored_label(egui::Color32::YELLOW, format!("Offline: {e}"));
+                        ui.add_space(12.0);
+                        ui.colored_label(egui::Color32::from_rgb(230, 180, 112), format!("Could not check for pack updates: {e}"));
                     }
                 }
                 Step::EuroScope => {
-                    ui.heading("EuroScope");
                     self.euroscope_ui(ui);
                 }
                 Step::VcRedist => {
-                    ui.heading("Visual C++ Redistributable");
                     self.vcredist_ui(ui);
                 }
                 Step::ControllerPack => {
-                    ui.heading("Controller Pack");
                     self.pack_ui(ui);
                 }
                 Step::Updates => {
-                    ui.heading("Updates");
                     self.updates_ui(ui);
                 }
                 Step::Configure => {
-                    ui.heading("Configuration");
                     self.config_ui(ui);
                 }
                 Step::Backups => {
-                    ui.heading("Backups");
                     self.backups_ui(ui);
                 }
                 Step::Done => {
-                    ui.heading("All done");
+                    ui.label("EuroScope and the UK controller pack are ready to use.");
+                    ui.add_space(8.0);
+                    ui.weak("You can return here any time to change your settings, check for updates or restore a backup.");
                 }
             }
+            });
         });
     }
 }
