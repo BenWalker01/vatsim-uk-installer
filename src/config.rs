@@ -53,8 +53,28 @@ pub struct Config {
     pub asel_key: String,
     /// `off`, `radar` (radar displays only) or `on` (SMRs too).
     pub rdf_mode: String,
+    /// `default` (leave the pack as shipped), `small`, `medium` or `large`.
+    pub font_size: String,
     pub advanced_config: bool,
 }
+
+pub const FONT_OPTIONS: &[(&str, &str, &str)] = &[
+    ("default", "Pack default (unchanged)", ""),
+    ("small", "Small", "3.0"),
+    ("medium", "Medium", "3.5"),
+    ("large", "Large", "4.0"),
+];
+
+/// SIMBOLOGY.txt entries (`Type:Name`) whose text size is controlled by the font size option.
+const SYMBOLOGY_FONT_ENTRIES: &[&str] = &[
+    "Metar:normal",
+    "Metar:modified",
+    "Metar:timeout",
+    "Other:list header",
+    "Chat:text",
+    "Chat:name normal",
+    "Chat:name unread",
+];
 
 pub const RDF_OPTIONS: &[(&str, &str)] = &[
     ("off", "Off (default, realistic)"),
@@ -78,6 +98,7 @@ impl Default for Config {
             land_choice: "1".into(),
             asel_key: String::new(),
             rdf_mode: "off".into(),
+            font_size: "default".into(),
             advanced_config: false,
         }
     }
@@ -379,6 +400,31 @@ fn patch_sct(path: &Path, cfg: &Config) -> anyhow::Result<()> {
     write_text(path, &(lines.join("\n") + "\n"))
 }
 
+/// Set the text size (4th `:`-separated field) of the font-related SIMBOLOGY.txt entries.
+fn patch_symbology_font(path: &Path, size: &str) -> anyhow::Result<()> {
+    let text = read_text(path)?;
+    let mut changed = false;
+    let lines: Vec<String> = text
+        .lines()
+        .map(|l| {
+            let mut parts: Vec<&str> = l.split(':').collect();
+            if parts.len() >= 4
+                && SYMBOLOGY_FONT_ENTRIES.contains(&format!("{}:{}", parts[0], parts[1]).as_str())
+                && parts[3] != size
+            {
+                parts[3] = size;
+                changed = true;
+                return parts.join(":");
+            }
+            l.to_string()
+        })
+        .collect();
+    if changed {
+        write_text(path, &(lines.join("\n") + "\n"))?;
+    }
+    Ok(())
+}
+
 fn patch_correlation(path: &Path, on: bool) -> anyhow::Result<()> {
     let text = read_text(path)?;
     let mut modified = false;
@@ -407,7 +453,7 @@ pub fn apply(cfg: &Config, root: &Path, shared: &download::Shared) -> anyhow::Re
     walk(root, &mut files);
     {
         let passes = if cfg.advanced_config { 2 } else { 1 };
-        shared.lock().unwrap().total = Some((files.len() * passes + 4) as u64);
+        shared.lock().unwrap().total = Some((files.len() * passes + 5) as u64);
     }
     let step = || shared.lock().unwrap().done += 1;
     let mut errors = Vec::new();
@@ -427,6 +473,10 @@ pub fn apply(cfg: &Config, root: &Path, shared: &download::Shared) -> anyhow::Re
             note(patch_plugins(p, &cfg.cpdlc), p);
         } else if name.starts_with("UK") && ends_with_ci(&name, ".ese") {
             note(replace_in(p, "EXAMPLE", &cfg.initials), p);
+        } else if name == "SIMBOLOGY.txt" {
+            if let Some((_, _, size)) = FONT_OPTIONS.iter().find(|o| o.0 == cfg.font_size && !o.2.is_empty()) {
+                note(patch_symbology_font(p, size), p);
+            }
         } else if name.ends_with("Profiles.txt") {
             note(
                 replace_in(
@@ -471,6 +521,12 @@ pub fn apply(cfg: &Config, root: &Path, shared: &download::Shared) -> anyhow::Re
         }
     }
 
+    // Last, so saved screen positions win over anything the passes above touched.
+    step();
+    if let Err(e) = crate::layout::apply(root) {
+        errors.push(format!("saved screen layout: {e}"));
+    }
+
     anyhow::ensure!(errors.is_empty(), "{}", errors.join("; "));
     Ok(())
 }
@@ -496,6 +552,18 @@ mod tests {
         patch_rdf(&radar, "off").unwrap();
         patch_rdf(&smr, "off").unwrap();
         assert!(!has(&radar) && !has(&smr));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn font_size_patches_only_font_entries() {
+        let dir = std::env::temp_dir().join(format!("ukfont-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("SIMBOLOGY.txt");
+        std::fs::write(&f, "Metar:normal:Arial:3.5:1\nOther:foo:Arial:3.5:1\n").unwrap();
+        patch_symbology_font(&f, "4.0").unwrap();
+        let out = std::fs::read_to_string(&f).unwrap();
+        assert!(out.contains("Metar:normal:Arial:4.0:1") && out.contains("Other:foo:Arial:3.5:1"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

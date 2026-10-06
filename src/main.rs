@@ -2,6 +2,7 @@ mod app;
 mod config;
 mod download;
 mod euroscope;
+mod layout;
 mod manifest;
 mod pack;
 mod state;

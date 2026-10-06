@@ -2,7 +2,7 @@
 
 use crate::{
     config::{self, Config},
-    download, euroscope,
+    download, euroscope, layout,
     manifest::Manifest,
     pack,
     state::State,
@@ -395,6 +395,49 @@ impl App {
                 ui.end_row();
             });
             Self::yes_no(ui, "Enable DiscordEuroscope plugin (shows where you're controlling)", &mut c.discord_presence);
+            ui.label("Text size (metar, chat and list headers)");
+            ui.horizontal(|ui| {
+                for (key, label, _) in config::FONT_OPTIONS {
+                    ui.radio_value(&mut c.font_size, key.to_string(), *label);
+                }
+            });
+            ui.separator();
+            ui.label("Screen layout");
+            ui.label(
+                "Move your windows in EuroScope and save your ASRs, then save your layout. It is compared \
+                 against a fresh copy of your installed pack version and re-applied whenever you apply configuration.",
+            );
+            ui.horizontal(|ui| {
+                let idle = self.job.is_none();
+                if ui.add_enabled(idle, egui::Button::new("Save current layout")).clicked() {
+                    let release = self.state.pack_version.and_then(|v| {
+                        self.manifest.as_ref()?.releases.iter().find(|r| r.version == v).cloned()
+                    });
+                    match release {
+                        Some(release) => {
+                            let (pack, shared) = (dir.clone(), download::Shared::default());
+                            let worker = shared.clone();
+                            let handle = std::thread::spawn(move || {
+                                let pristine = pack::fetch_pristine_asrs(&release, &worker)?;
+                                layout::save_changes(&pack, &pristine).map(|_| ())
+                            });
+                            self.job = Some(Job { shared, handle });
+                            self.status.clear();
+                        }
+                        None => {
+                            self.status = "Installed pack version not found in the release list (offline?).".into()
+                        }
+                    }
+                }
+                let saved = layout::load_layout().len();
+                if ui.add_enabled(saved > 0, egui::Button::new("Clear saved layout")).clicked() {
+                    self.status = match layout::clear_layout() {
+                        Ok(()) => "Saved layout cleared.".into(),
+                        Err(e) => format!("Could not clear layout: {e}"),
+                    };
+                }
+                ui.label(format!("{saved} ASR file(s) with saved changes"));
+            });
             ui.separator();
             ui.checkbox(&mut c.advanced_config, "Configure advanced options");
             if c.advanced_config {

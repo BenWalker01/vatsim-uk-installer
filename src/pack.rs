@@ -36,6 +36,36 @@ fn download_and_extract(asset: &Asset, dest: &Path, shared: &Shared, message: &s
     result
 }
 
+/// Download the full pack for `release` and return its pristine ASR files (`Data/ASR/**.asr`),
+/// keyed by path relative to `Data/ASR`. Nothing is written to the pack.
+pub fn fetch_pristine_asrs(release: &PackRelease, shared: &Shared) -> anyhow::Result<crate::layout::Baseline> {
+    download::set_message(shared, format!("Downloading pack {} for comparison", release.version));
+    let tmp = std::env::temp_dir().join(format!("vatsim-uk-installer-ref-{}.zip", std::process::id()));
+    let result = download::download(&release.full.url, &release.full.sha256, &tmp, shared)
+        .and_then(|_| read_asrs_from_zip(&tmp));
+    let _ = std::fs::remove_file(&tmp);
+    result
+}
+
+fn read_asrs_from_zip(zip_path: &Path) -> anyhow::Result<crate::layout::Baseline> {
+    use std::io::Read;
+    let mut archive = zip::ZipArchive::new(std::fs::File::open(zip_path)?)?;
+    let mut out = crate::layout::Baseline::new();
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let Some(full) = entry.enclosed_name() else { continue };
+        let Ok(rel) = full.strip_prefix(Path::new("UK").join("Data").join("ASR")) else { continue };
+        if entry.is_dir() || !rel.extension().is_some_and(|x| x.eq_ignore_ascii_case("asr")) {
+            continue;
+        }
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes)?;
+        let key = rel.to_string_lossy().replace('\\', "/");
+        out.insert(key, crate::layout::norm(&String::from_utf8_lossy(&bytes)));
+    }
+    Ok(out)
+}
+
 /// Extract the `UK/` folder of `zip_path` into `dest` (the zip's top-level `UK` is stripped; other
 /// top-level files such as README.pdf are skipped), overwriting existing files and rejecting paths that escape `dest`.
 fn extract(zip_path: &Path, dest: &Path) -> anyhow::Result<()> {
