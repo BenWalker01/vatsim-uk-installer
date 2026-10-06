@@ -28,7 +28,7 @@ fn app_icon() -> eframe::egui::IconData {
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([860.0, 620.0])
+            .with_inner_size([860.0, 760.0])
             .with_icon(app_icon()),
         ..Default::default()
     };
