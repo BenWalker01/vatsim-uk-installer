@@ -1,0 +1,3 @@
+# Statically link the MSVC CRT so the installer runs without vcruntime140.dll.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]
