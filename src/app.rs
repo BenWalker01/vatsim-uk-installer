@@ -54,6 +54,8 @@ pub struct App {
     manifest_error: Option<String>,
     euroscope: Option<euroscope::Detected>,
     vcredist: bool,
+    rechecking: Option<(&'static str, std::time::Instant)>,
+    checked: Option<(&'static str, std::time::Instant)>,
     status: String,
     job: Option<Job>,
     config: Config,
@@ -127,6 +129,8 @@ impl App {
             manifest_error: None,
             euroscope: None,
             vcredist: false,
+            rechecking: None,
+            checked: None,
             status: String::new(),
             job: None,
             config: Config::default(),
@@ -227,9 +231,47 @@ impl App {
             }
         }
         self.progress_ui(ui);
-        if ui.button("Re-check").clicked() {
+        let ok = self.euroscope_ok();
+        if self.recheck_ui(ui, "euroscope", ok) {
             self.euroscope = euroscope::detect();
         }
+    }
+
+    /// Re-check button with a brief spinner, then a tick/cross result. Returns true when the check should run.
+    fn recheck_ui(&mut self, ui: &mut egui::Ui, key: &'static str, ok: bool) -> bool {
+        const SPIN: std::time::Duration = std::time::Duration::from_millis(600);
+        const SHOW: std::time::Duration = std::time::Duration::from_millis(3000);
+        let mut run = false;
+        let checking = matches!(self.rechecking, Some((k, t)) if k == key && t.elapsed() < SPIN);
+        if matches!(self.rechecking, Some((k, t)) if k == key && t.elapsed() >= SPIN) {
+            self.rechecking = None;
+            self.checked = Some((key, std::time::Instant::now()));
+            run = true;
+        }
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(!checking, egui::Button::new("Re-check"))
+                .clicked()
+            {
+                self.rechecking = Some((key, std::time::Instant::now()));
+                self.checked = None;
+            }
+            if checking {
+                ui.add(egui::Spinner::new());
+                ui.label("Checking...");
+                ui.ctx().request_repaint();
+            } else if let Some((k, t)) = self.checked {
+                if k == key && t.elapsed() < SHOW {
+                    if ok {
+                        ui.colored_label(egui::Color32::from_rgb(110, 190, 145), "✔ Up to date");
+                    } else {
+                        ui.colored_label(egui::Color32::LIGHT_RED, "✖ Not found / needs attention");
+                    }
+                    ui.ctx().request_repaint_after(SHOW);
+                }
+            }
+        });
+        run
     }
 
     fn vcredist_ui(&mut self, ui: &mut egui::Ui) {
@@ -258,7 +300,8 @@ impl App {
                 };
             }
         }
-        if ui.button("Re-check").clicked() {
+        let ok = self.vcredist;
+        if self.recheck_ui(ui, "vcredist", ok) {
             self.vcredist = vcredist::is_installed();
         }
     }
