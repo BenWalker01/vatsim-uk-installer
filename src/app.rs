@@ -425,14 +425,23 @@ impl App {
             }
         });
         ui.separator();
-        if ui.button("Save and apply").clicked() {
-            self.status = match self.config.validate() {
-                Some(msg) => msg.to_string(),
-                None => match config::save(&self.config).and_then(|_| config::apply(&self.config, &dir)) {
-                    Ok(()) => "Configuration saved and applied.".into(),
-                    Err(e) => format!("Configuration failed: {e}"),
-                },
-            };
+        self.progress_ui(ui);
+        let idle = self.job.is_none();
+        if ui.add_enabled(idle, egui::Button::new("Save and apply")).clicked() {
+            match self.config.validate() {
+                Some(msg) => self.status = msg.to_string(),
+                None => {
+                    let cfg = self.config.clone();
+                    let shared = download::Shared::default();
+                    let worker = shared.clone();
+                    let handle = std::thread::spawn(move || {
+                        config::save(&cfg)?;
+                        config::apply(&cfg, &dir, &worker)
+                    });
+                    self.job = Some(Job { shared, handle });
+                    self.status.clear();
+                }
+            }
         }
     }
 }

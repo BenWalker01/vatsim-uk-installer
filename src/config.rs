@@ -1,5 +1,6 @@
 //! Controller pack configuration: stored locally, applied by patching the pack files.
 
+use crate::download;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -399,10 +400,16 @@ fn patch_correlation(path: &Path, on: bool) -> anyhow::Result<()> {
 }
 
 /// Patch the pack in `root` according to `cfg`. Per-file failures are collected, not fatal.
-pub fn apply(cfg: &Config, root: &Path) -> anyhow::Result<()> {
+pub fn apply(cfg: &Config, root: &Path, shared: &download::Shared) -> anyhow::Result<()> {
     anyhow::ensure!(root.is_dir(), "Controller pack folder not found: {}", root.display());
+    download::set_message(shared, "Applying configuration");
     let mut files = Vec::new();
     walk(root, &mut files);
+    {
+        let passes = if cfg.advanced_config { 2 } else { 1 };
+        shared.lock().unwrap().total = Some((files.len() * passes + 4) as u64);
+    }
+    let step = || shared.lock().unwrap().done += 1;
     let mut errors = Vec::new();
     let mut note = |r: anyhow::Result<()>, p: &Path| {
         if let Err(e) = r {
@@ -411,6 +418,7 @@ pub fn apply(cfg: &Config, root: &Path) -> anyhow::Result<()> {
     };
 
     for p in &files {
+        step();
         let name = file_name(p);
         if ends_with_ci(&name, ".prf") {
             note(patch_prf(p, cfg), p);
@@ -431,6 +439,7 @@ pub fn apply(cfg: &Config, root: &Path) -> anyhow::Result<()> {
         }
     }
     for sys in ["TopSky_iTEC", "TopSky_NERC", "TopSky_NODE", "TopSky_NOVA"] {
+        step();
         let dir = root.join("Data").join("Plugin").join(sys);
         let target = dir.join("TopSkyCPDLChoppieCode.txt");
         note(
@@ -441,6 +450,7 @@ pub fn apply(cfg: &Config, root: &Path) -> anyhow::Result<()> {
 
     if cfg.advanced_config {
         for p in &files {
+            step();
             let name = file_name(p);
             if ends_with_ci(&name, ".asr") {
                 note(patch_asr(p, root, cfg.realistic_tags == "y"), p);
@@ -517,7 +527,7 @@ mod tests {
             discord_presence: "y".into(),
             ..Default::default()
         };
-        apply(&cfg, &dir).unwrap();
+        apply(&cfg, &dir, &download::Shared::default()).unwrap();
         let out = std::fs::read_to_string(&prf).unwrap();
         assert!(out.contains("LastSession\tcallsign\tAB_OBS"));
         assert!(!out.contains("\told"));
