@@ -87,16 +87,16 @@ struct Job {
 impl App {
     fn step_description(&self) -> &'static str {
         match self.step {
-            Step::Welcome => "A short setup to get your UK controller pack ready.",
+            Step::Welcome => "Installer for the UK Controller Pack",
             Step::EuroScope => {
-                "Install the supported EuroScope version, or check the one already on your PC."
+                "Install Euroscope version 3.2.3.2, or check what you already have installed"
             }
-            Step::VcRedist => "EuroScope needs this Microsoft runtime to run.",
-            Step::ControllerPack => "Install the UK sector files and controller resources.",
-            Step::Updates => "Keep your controller pack current without losing your settings.",
-            Step::Configure => "Add your details and choose how EuroScope looks and behaves.",
-            Step::Backups => "Restore a saved copy of your controller pack if you need to.",
-            Step::Done => "The essentials are in place. You can change settings any time.",
+            Step::VcRedist => "The UK Controller Plugin needs this runtime",
+            Step::ControllerPack => "Install a fresh controller pack",
+            Step::Updates => "Update your pack to the latest version",
+            Step::Configure => "Set or load settings",
+            Step::Backups => "Restore a saved copy of your controller pack",
+            Step::Done => "Happy Controlling!",
         }
     }
 
