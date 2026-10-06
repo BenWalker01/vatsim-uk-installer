@@ -22,23 +22,137 @@ pub fn installed_version(dir: &Path) -> Option<PackVersion> {
 
 /// Download and extract the full pack for `release` into `dest`.
 pub fn install_full(release: &PackRelease, dest: &Path, shared: &Shared) -> anyhow::Result<()> {
-    download_and_extract(
-        &release.full,
-        dest,
-        shared,
-        &format!("Installing controller pack {}", release.version),
+    update_staged(dest, false, |staging| {
+        download_and_extract(
+            &release.full,
+            staging,
+            shared,
+            &format!("Installing controller pack {}", release.version),
+        )
+    })
+}
+
+/// Apply every changes-only archive to a staged copy, replacing `dest` only when all succeed.
+pub fn apply_changes_batch(
+    releases: &[PackRelease],
+    dest: &Path,
+    shared: &Shared,
+) -> anyhow::Result<()> {
+    update_staged(dest, true, |staging| {
+        for release in releases {
+            let version_file = staging.join("version.txt");
+            if version_file.exists() {
+                std::fs::remove_file(&version_file)?;
+            }
+            download_and_extract(
+                &release.changes_only,
+                staging,
+                shared,
+                &format!("Applying update {}", release.version),
+            )?;
+            ensure_version_file(&version_file, release.version)?;
+        }
+        Ok(())
+    })
+}
+
+fn ensure_version_file(path: &Path, version: PackVersion) -> anyhow::Result<()> {
+    if !path.exists() {
+        std::fs::write(path, version.to_string())?;
+    }
+    Ok(())
+}
+
+fn update_staged(
+    dest: &Path,
+    copy_existing: bool,
+    update: impl FnOnce(&Path) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let parent = dest
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("pack directory has no parent: {}", dest.display()))?;
+    std::fs::create_dir_all(parent)?;
+    if copy_existing && !dest.is_dir() {
+        anyhow::bail!(
+            "installed pack directory does not exist: {}",
+            dest.display()
+        );
+    }
+
+    let staging = unique_sibling(dest, "updating")?;
+    std::fs::create_dir(&staging)?;
+    let result = (|| {
+        if copy_existing {
+            copy_dir_contents(dest, &staging)?;
+        }
+        update(&staging)?;
+        promote(&staging, dest)
+    })();
+    if staging.exists() {
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+    result
+}
+
+fn copy_dir_contents(source: &Path, dest: &Path) -> anyhow::Result<()> {
+    for entry in std::fs::read_dir(source)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = dest.join(entry.file_name());
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            std::fs::create_dir(&to)?;
+            copy_dir_contents(&from, &to)?;
+        } else if kind.is_file() {
+            std::fs::copy(&from, &to)?;
+        } else {
+            anyhow::bail!("unsupported file type in pack: {}", from.display());
+        }
+    }
+    Ok(())
+}
+
+fn unique_sibling(path: &Path, purpose: &str) -> anyhow::Result<PathBuf> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("pack directory has no parent: {}", path.display()))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("invalid pack directory: {}", path.display()))?
+        .to_string_lossy();
+    for attempt in 0..1000 {
+        let candidate = parent.join(format!(
+            ".{name}-{purpose}-{}-{attempt}",
+            std::process::id()
+        ));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    anyhow::bail!(
+        "could not find a temporary directory for {}",
+        path.display()
     )
 }
 
-/// Download and overlay the changes-only zip for `release` onto `dest`.
-/// The caller saves `State.pack_version` after each successful patch.
-pub fn apply_changes(release: &PackRelease, dest: &Path, shared: &Shared) -> anyhow::Result<()> {
-    download_and_extract(
-        &release.changes_only,
-        dest,
-        shared,
-        &format!("Applying update {}", release.version),
-    )
+fn promote(staging: &Path, dest: &Path) -> anyhow::Result<()> {
+    if !dest.exists() {
+        return std::fs::rename(staging, dest).map_err(Into::into);
+    }
+
+    let previous = unique_sibling(dest, "previous")?;
+    std::fs::rename(dest, &previous)?;
+    if let Err(promote_error) = std::fs::rename(staging, dest) {
+        return match std::fs::rename(&previous, dest) {
+            Ok(()) => Err(promote_error.into()),
+            Err(restore_error) => Err(anyhow::anyhow!(
+                "could not install updated pack: {promote_error}; could not restore previous pack from {}: {restore_error}",
+                previous.display()
+            )),
+        };
+    }
+    std::fs::remove_dir_all(&previous)?;
+    Ok(())
 }
 
 fn download_and_extract(
@@ -142,7 +256,12 @@ mod tests {
         let m = crate::manifest::Manifest::fetch().unwrap();
         let dest = std::env::temp_dir().join("vuk-live-patch");
         let _ = std::fs::remove_dir_all(&dest);
-        apply_changes(m.latest().unwrap(), &dest, &Shared::default()).unwrap();
+        apply_changes_batch(
+            std::slice::from_ref(m.latest().unwrap()),
+            &dest,
+            &Shared::default(),
+        )
+        .unwrap();
         let top: Vec<_> = std::fs::read_dir(&dest)
             .unwrap()
             .flatten()
@@ -189,6 +308,68 @@ mod tests {
             "new"
         );
         assert!(!dest.join("README.pdf").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn failed_staged_update_preserves_the_live_pack() {
+        let dir = std::env::temp_dir().join(format!("vuk-atomic-fail-{}", std::process::id()));
+        let pack = dir.join("UK");
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::write(pack.join("existing.txt"), "original").unwrap();
+
+        let result = update_staged(&pack, true, |staging| {
+            std::fs::write(staging.join("existing.txt"), "partial")?;
+            anyhow::bail!("simulated patch failure");
+        });
+
+        assert!(result.is_err());
+        assert_eq!(
+            std::fs::read_to_string(pack.join("existing.txt")).unwrap(),
+            "original"
+        );
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn successful_staged_update_replaces_the_live_pack() {
+        let dir = std::env::temp_dir().join(format!("vuk-atomic-ok-{}", std::process::id()));
+        let pack = dir.join("UK");
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::write(pack.join("existing.txt"), "original").unwrap();
+
+        update_staged(&pack, true, |staging| {
+            std::fs::write(staging.join("existing.txt"), "updated")?;
+            std::fs::write(staging.join("new.txt"), "new")?;
+            Ok(())
+        })
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(pack.join("existing.txt")).unwrap(),
+            "updated"
+        );
+        assert_eq!(
+            std::fs::read_to_string(pack.join("new.txt")).unwrap(),
+            "new"
+        );
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn missing_version_file_is_written_without_overwriting_archive_marker() {
+        let dir = std::env::temp_dir().join(format!("vuk-version-fallback-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let version_file = dir.join("version.txt");
+
+        ensure_version_file(&version_file, "2026_10".parse().unwrap()).unwrap();
+        assert_eq!(std::fs::read_to_string(&version_file).unwrap(), "2026_10");
+        std::fs::write(&version_file, "2026_10a").unwrap();
+        ensure_version_file(&version_file, "2026_10".parse().unwrap()).unwrap();
+        assert_eq!(std::fs::read_to_string(&version_file).unwrap(), "2026_10a");
+
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

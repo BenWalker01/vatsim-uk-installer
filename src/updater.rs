@@ -35,7 +35,7 @@ pub fn plan(manifest: &Manifest, installed: Option<PackVersion>) -> Option<Plan>
     })
 }
 
-/// Run a plan, saving the installed version after every step so an interruption resumes cleanly.
+/// Run a plan, keeping the installed pack unchanged until the complete plan succeeds.
 pub fn execute(
     plan: Plan,
     dir: &std::path::Path,
@@ -51,9 +51,9 @@ pub fn execute(
             state.save()?;
         }
         Plan::Patches(releases) => {
-            for r in releases {
-                crate::pack::apply_changes(&r, dir, shared)?;
-                state.pack_version = Some(r.version);
+            if let Some(latest) = releases.last() {
+                crate::pack::apply_changes_batch(&releases, dir, shared)?;
+                state.pack_version = Some(latest.version);
                 state.save()?;
             }
         }
