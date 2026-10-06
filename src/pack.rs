@@ -16,29 +16,6 @@ pub fn installed_version(dir: &Path) -> Option<PackVersion> {
     std::fs::read_to_string(dir.join("version.txt")).ok()?.trim().parse().ok()
 }
 
-/// Copy the whole pack to a timestamped sibling folder (`UK_backup_<unix secs>`) and return its path.
-pub fn backup(dir: &Path, shared: &Shared) -> anyhow::Result<PathBuf> {
-    download::set_message(shared, "Backing up your existing pack");
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
-    let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "pack".into());
-    let dest = dir.with_file_name(format!("{name}_backup_{secs}"));
-    copy_dir(dir, &dest)?;
-    Ok(dest)
-}
-
-fn copy_dir(src: &Path, dest: &Path) -> anyhow::Result<()> {
-    std::fs::create_dir_all(dest)?;
-    for e in std::fs::read_dir(src)? {
-        let e = e?;
-        let target = dest.join(e.file_name());
-        if e.file_type()?.is_dir() {
-            copy_dir(&e.path(), &target)?;
-        } else {
-            std::fs::copy(e.path(), target)?;
-        }
-    }
-    Ok(())
-}
 
 /// Download and extract the full pack for `release` into `dest`.
 pub fn install_full(release: &PackRelease, dest: &Path, shared: &Shared) -> anyhow::Result<()> {

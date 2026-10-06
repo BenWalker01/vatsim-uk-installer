@@ -8,6 +8,9 @@ pub struct State {
     pub pack_version: Option<crate::manifest::PackVersion>,
     pub pack_dir: Option<PathBuf>,
     pub euroscope_path: Option<PathBuf>,
+    /// How many backups to keep; `None` means the default.
+    #[serde(default)]
+    pub backups_to_keep: Option<usize>,
 }
 
 fn path() -> Option<PathBuf> {

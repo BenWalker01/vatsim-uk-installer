@@ -2,7 +2,7 @@
 
 use crate::{
     config::{self, Config},
-    download, euroscope, layout,
+    backup, download, euroscope, layout,
     manifest::Manifest,
     pack,
     state::State,
@@ -18,6 +18,7 @@ enum Step {
     ControllerPack,
     Updates,
     Configure,
+    Backups,
     Done,
 }
 
@@ -28,6 +29,7 @@ const STEPS: &[(Step, &str)] = &[
     (Step::ControllerPack, "Controller Pack"),
     (Step::Updates, "Updates"),
     (Step::Configure, "Configuration"),
+    (Step::Backups, "Backups"),
     (Step::Done, "Finish"),
 ];
 
@@ -42,6 +44,9 @@ pub struct App {
     /// Guided mode: sidebar navigation is locked until setup has been completed.
     wizard: bool,
     confirm_update: Option<UpdateOptions>,
+    backups: Vec<backup::Backup>,
+    backups_dirty: bool,
+    selected_backup: Option<(std::path::PathBuf, Result<Vec<String>, String>)>,
     step: Step,
     state: State,
     manifest: Option<Manifest>,
@@ -65,6 +70,9 @@ impl App {
         let mut app = App {
             wizard: true,
             confirm_update: None,
+            backups: Vec::new(),
+            backups_dirty: true,
+            selected_backup: None,
             step: Step::Welcome,
             state: State::load(),
             manifest: None,
@@ -97,9 +105,15 @@ impl App {
         }
     }
 
+    /// Steps shown in the sidebar; the Backups page only appears once setup is complete.
+    fn steps(&self) -> Vec<(Step, &'static str)> {
+        STEPS.iter().copied().filter(|(s, _)| !(self.wizard && *s == Step::Backups)).collect()
+    }
+
     fn next(&mut self) {
-        if let Some(i) = STEPS.iter().position(|(s, _)| *s == self.step) {
-            if let Some((s, _)) = STEPS.get(i + 1) {
+        let steps = self.steps();
+        if let Some(i) = steps.iter().position(|(s, _)| *s == self.step) {
+            if let Some((s, _)) = steps.get(i + 1) {
                 self.step = *s;
             }
         }
@@ -256,14 +270,24 @@ impl App {
         } else {
             None
         };
+        let tag = installed.map(|v| v.to_string());
+        let keep = self.state.backups_to_keep.unwrap_or(backup::DEFAULT_KEEP);
         let shared = download::Shared::default();
         let worker = shared.clone();
         let handle = std::thread::spawn(move || {
+            // The reference download doesn't touch the pack, so it runs alongside the backup.
+            let pristine = match (opts.save_layout, installed_release) {
+                (true, Some(release)) => {
+                    let w = worker.clone();
+                    Some(std::thread::spawn(move || pack::fetch_pristine_asrs(&release, &w)))
+                }
+                _ => None,
+            };
             if opts.backup {
-                pack::backup(&dir, &worker)?;
+                backup::create(&dir, tag.as_deref(), keep, &worker)?;
             }
-            if let (true, Some(release)) = (opts.save_layout, &installed_release) {
-                let pristine = pack::fetch_pristine_asrs(release, &worker)?;
+            if let Some(h) = pristine {
+                let pristine = h.join().map_err(|_| anyhow::anyhow!("layout download panicked"))??;
                 layout::save_changes(&dir, &pristine)?;
             }
             updater::execute(plan, &dir, &worker)?;
@@ -292,6 +316,7 @@ impl App {
                 Err(_) => "Worker thread panicked".into(),
             };
             self.reload_state();
+            self.backups_dirty = true;
             self.euroscope = euroscope::detect();
         } else {
             ui.ctx().request_repaint();
@@ -390,6 +415,97 @@ impl App {
             } else {
                 self.confirm_update = Some(opts);
             }
+        }
+    }
+
+    /// Browse, restore, delete and configure retention of pack backups.
+    fn backups_ui(&mut self, ui: &mut egui::Ui) {
+        if self.backups_dirty {
+            self.backups = backup::list();
+            self.backups_dirty = false;
+            if !self.backups.iter().any(|b| Some(&b.path) == self.selected_backup.as_ref().map(|(p, _)| p)) {
+                self.selected_backup = None;
+            }
+        }
+        let idle = self.job.is_none();
+        let mut keep = self.state.backups_to_keep.unwrap_or(backup::DEFAULT_KEEP);
+        ui.horizontal(|ui| {
+            ui.label("Backups to keep:");
+            if ui.add(egui::DragValue::new(&mut keep).range(1..=50)).changed() {
+                let mut s = State::load();
+                s.backups_to_keep = Some(keep);
+                self.status = match s.save().and_then(|_| backup::prune(keep)) {
+                    Ok(()) => String::new(),
+                    Err(e) => format!("Could not save setting: {e}"),
+                };
+                self.state.backups_to_keep = Some(keep);
+                self.backups_dirty = true;
+            }
+            ui.label("Older backups are deleted automatically.");
+        });
+        if let Some(d) = backup::dir() {
+            ui.label(format!("Stored in: {}", d.display()));
+        }
+        ui.separator();
+        if self.backups.is_empty() {
+            ui.label("No backups yet. One can be made before each pack update.");
+            return;
+        }
+        let mut select = None;
+        egui::ScrollArea::vertical().id_salt("backup_list").max_height(180.0).show(ui, |ui| {
+            for b in &self.backups {
+                let label = format!("{}  -  {}  ({:.1} MB)", b.name(), b.date(), b.size as f64 / 1_048_576.0);
+                let on = self.selected_backup.as_ref().is_some_and(|(p, _)| *p == b.path);
+                if ui.selectable_label(on, label).clicked() {
+                    select = Some(b.clone());
+                }
+            }
+        });
+        if let Some(b) = select {
+            let files = backup::contents(&b).map_err(|e| e.to_string());
+            self.selected_backup = Some((b.path.clone(), files));
+        }
+        let Some((path, files)) = &self.selected_backup else { return };
+        let Some(b) = self.backups.iter().find(|b| &b.path == path).cloned() else { return };
+        ui.separator();
+        ui.label(format!("Contents of {} ({}):", b.name(), b.date()));
+        match files {
+            Ok(f) => {
+                ui.label(format!("{} file(s)", f.len()));
+                egui::ScrollArea::vertical().id_salt("backup_files").max_height(200.0).show(ui, |ui| {
+                    for name in f {
+                        ui.monospace(name);
+                    }
+                });
+            }
+            Err(e) => {
+                ui.colored_label(egui::Color32::LIGHT_RED, e);
+            }
+        }
+        ui.separator();
+        let mut restore = false;
+        ui.horizontal(|ui| {
+            restore = ui.add_enabled(idle, egui::Button::new("Restore this backup")).clicked();
+            if ui.add_enabled(idle, egui::Button::new("Delete")).clicked() {
+                self.status = match backup::delete(&b) {
+                    Ok(()) => "Backup deleted.".into(),
+                    Err(e) => format!("Could not delete backup: {e}"),
+                };
+                self.backups_dirty = true;
+            }
+        });
+        ui.label("Restoring replaces your current pack folder. Close EuroScope first.");
+        self.progress_ui(ui);
+        if restore {
+            let Some(dir) = self.pack_dir() else {
+                self.status = "Pack location unknown.".into();
+                return;
+            };
+            let shared = download::Shared::default();
+            let worker = shared.clone();
+            let handle = std::thread::spawn(move || backup::restore(&b, &dir, &worker));
+            self.job = Some(Job { shared, handle });
+            self.status.clear();
         }
     }
 
@@ -599,8 +715,9 @@ impl eframe::App for App {
         self.poll_job(ui);
         egui::Panel::left("steps").show(ui, |ui| {
             ui.heading("Setup");
-            let current = STEPS.iter().position(|(s, _)| *s == self.step).unwrap_or(0);
-            for (i, (s, name)) in STEPS.iter().enumerate() {
+            let steps = self.steps();
+            let current = steps.iter().position(|(s, _)| *s == self.step).unwrap_or(0);
+            for (i, (s, name)) in steps.iter().enumerate() {
                 if self.wizard {
                     let text = if i == current {
                         egui::RichText::new(*name).strong().color(ui.visuals().selection.stroke.color)
@@ -612,6 +729,7 @@ impl eframe::App for App {
                     ui.label(text);
                 } else if ui.selectable_label(self.step == *s, *name).clicked() {
                     self.step = *s;
+                    self.backups_dirty = true;
                 }
             }
         });
@@ -659,6 +777,10 @@ impl eframe::App for App {
                 Step::Configure => {
                     ui.heading("Configuration");
                     self.config_ui(ui);
+                }
+                Step::Backups => {
+                    ui.heading("Backups");
+                    self.backups_ui(ui);
                 }
                 Step::Done => {
                     ui.heading("All done");

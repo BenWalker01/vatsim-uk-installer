@@ -1,4 +1,5 @@
 mod app;
+mod backup;
 mod config;
 mod download;
 mod euroscope;
