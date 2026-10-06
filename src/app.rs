@@ -103,10 +103,22 @@ impl App {
     }
 
     fn setup_status(&self, step: Step) -> (&'static str, egui::Color32) {
+        if step == Step::ControllerPack {
+            return match (
+                self.state.pack_version,
+                self.manifest.as_ref().and_then(Manifest::latest),
+            ) {
+                (None, _) => ("Missing", egui::Color32::from_rgb(158, 165, 174)),
+                (Some(installed), Some(latest)) if installed == latest.version => {
+                    ("Ready", egui::Color32::from_rgb(110, 190, 145))
+                }
+                (Some(_), _) => ("Outdated", egui::Color32::from_rgb(230, 180, 112)),
+            };
+        }
+
         let ready = match step {
             Step::EuroScope => self.euroscope_ok(),
             Step::VcRedist => self.vcredist,
-            Step::ControllerPack => self.state.pack_version.is_some(),
             _ => false,
         };
         if ready {
