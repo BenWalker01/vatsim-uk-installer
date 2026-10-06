@@ -359,6 +359,27 @@ mod tests {
     }
 
     #[test]
+    fn full_reinstall_discards_files_not_in_the_new_pack() {
+        let dir = std::env::temp_dir().join(format!("vuk-full-reinstall-{}", std::process::id()));
+        let pack = dir.join("UK");
+        std::fs::create_dir_all(pack.join("obsolete")).unwrap();
+        std::fs::write(pack.join("obsolete.txt"), "old").unwrap();
+        std::fs::write(pack.join("obsolete").join("old.txt"), "old").unwrap();
+
+        update_staged(&pack, false, |staging| {
+            std::fs::write(staging.join("version.txt"), "2026_10")?;
+            Ok(())
+        })
+        .unwrap();
+
+        assert!(pack.join("version.txt").is_file());
+        assert!(!pack.join("obsolete.txt").exists());
+        assert!(!pack.join("obsolete").exists());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn missing_version_file_is_written_without_overwriting_archive_marker() {
         let dir = std::env::temp_dir().join(format!("vuk-version-fallback-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
