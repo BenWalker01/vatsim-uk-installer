@@ -8,9 +8,13 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use sha2::{Digest, Sha256};
+
 use crate::download::{self, Shared};
 
 pub const DOWNLOADS_URL: &str = "https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170#latest-microsoft-visual-c-redistributable-version";
+// SHA-256 of the x86 redistributable served by Microsoft's latest-version URL on 2026-10-06.
+const EXPECTED_SHA256: &str = "0c09f2611660441084ce0df425c51c11e147e6447963c3690f97e0b25c55ed64";
 
 /// Checks the registry for the x86 VC++ 2015-2022 runtime (EuroScope is 32-bit).
 pub fn is_installed() -> bool {
@@ -44,17 +48,26 @@ pub fn install(url: &str, shared: &Shared) -> anyhow::Result<()> {
     let (path, mut file) = create_temp_installer()?;
     let _cleanup = TempInstaller(path.clone());
     let mut reader = response.into_body().into_reader();
+    let mut hasher = Sha256::new();
     let mut buffer = [0u8; 64 * 1024];
     loop {
         let n = reader.read(&mut buffer)?;
         if n == 0 {
             break;
         }
+        hasher.update(&buffer[..n]);
         file.write_all(&buffer[..n])?;
         shared.lock().unwrap().done += n as u64;
     }
     file.flush()?;
     drop(file);
+
+    let actual = hex::encode(hasher.finalize());
+    if actual != EXPECTED_SHA256 {
+        anyhow::bail!(
+            "Visual C++ Redistributable checksum mismatch: expected {EXPECTED_SHA256}, got {actual}"
+        );
+    }
 
     download::set_message(shared, "Installing Visual C++ Redistributable (x86)");
     let status = Command::new(&path)

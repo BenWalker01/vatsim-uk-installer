@@ -20,6 +20,7 @@
 | 13 | Downloads are verified against the GitHub asset `sha256:` digest; installed version is saved after each applied release | An interrupted update resumes from the last good release. |
 | 14 | Installed pack version is read from the selected pack directory's `version.txt`; saved state alone never indicates that the pack is installed | The release workflow will add `UK/version.txt` to both the full and changes-only zips. Currently the repo's file is stale (`2025_07`), so it must be written per release. Missing or unparseable content triggers a full install. |
 | 15 | A mismatched or unreadable EuroScope version must be fully uninstalled before installing the required version | Downgrades require a full uninstall; the installer opens Windows Settings' Installed apps page and enables installation after EuroScope is removed. |
+| 16 | Verify the VC++ x86 installer against a pinned SHA-256 before running it | The digest matches the file served by Microsoft's latest-version URL on 2026-10-06; refresh it when Microsoft updates that file. |
 
 ## Open questions
 
