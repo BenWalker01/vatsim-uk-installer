@@ -50,8 +50,16 @@ pub struct Config {
     pub coast_choice: String,
     pub land_choice: String,
     pub asel_key: String,
+    /// `off`, `radar` (radar displays only) or `on` (SMRs too).
+    pub rdf_mode: String,
     pub advanced_config: bool,
 }
+
+pub const RDF_OPTIONS: &[(&str, &str)] = &[
+    ("off", "Off (default, realistic)"),
+    ("radar", "Radar displays only"),
+    ("on", "Radar displays and SMRs"),
+];
 
 impl Default for Config {
     fn default() -> Self {
@@ -68,6 +76,7 @@ impl Default for Config {
             coast_choice: "1".into(),
             land_choice: "1".into(),
             asel_key: String::new(),
+            rdf_mode: "off".into(),
             advanced_config: false,
         }
     }
@@ -330,6 +339,28 @@ fn patch_asr(path: &Path, root: &Path, realistic_tags: bool) -> anyhow::Result<(
     write_text(path, &(lines.join("\n") + "\n"))
 }
 
+fn patch_rdf(path: &Path, mode: &str) -> anyhow::Result<()> {
+    const RDF_LINE: &str = "PLUGIN:RDF Plugin for Euroscope:EnableDraw:1";
+    let text = read_text(path)?;
+    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+    let has = lines.iter().any(|l| l.contains(RDF_LINE));
+    let is_smr = lines.iter().any(|l| l.contains("DisplayTypeName:SMR"));
+    let want = match mode {
+        "on" => true,
+        "radar" => !is_smr,
+        _ => false,
+    };
+    if want == has {
+        return Ok(());
+    }
+    if want {
+        lines.push(RDF_LINE.into());
+    } else {
+        lines.retain(|l| !l.contains(RDF_LINE));
+    }
+    write_text(path, &(lines.join("\n") + "\n"))
+}
+
 fn patch_sct(path: &Path, cfg: &Config) -> anyhow::Result<()> {
     let text = read_text(path)?;
     let lines: Vec<String> = text
@@ -413,6 +444,7 @@ pub fn apply(cfg: &Config, root: &Path) -> anyhow::Result<()> {
             let name = file_name(p);
             if ends_with_ci(&name, ".asr") {
                 note(patch_asr(p, root, cfg.realistic_tags == "y"), p);
+                note(patch_rdf(p, &cfg.rdf_mode), p);
             }
             if name.starts_with("UK_") && ends_with_ci(&name, ".sct") {
                 note(patch_sct(p, cfg), p);
@@ -436,6 +468,26 @@ pub fn apply(cfg: &Config, root: &Path) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rdf_modes() {
+        let dir = std::env::temp_dir().join(format!("ukrdf-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let radar = dir.join("r.asr");
+        let smr = dir.join("s.asr");
+        std::fs::write(&radar, "DisplayTypeName:Radar\n").unwrap();
+        std::fs::write(&smr, "DisplayTypeName:SMR\n").unwrap();
+        let has = |p: &Path| std::fs::read_to_string(p).unwrap().contains("RDF Plugin for Euroscope:EnableDraw:1");
+        patch_rdf(&radar, "radar").unwrap();
+        patch_rdf(&smr, "radar").unwrap();
+        assert!(has(&radar) && !has(&smr));
+        patch_rdf(&smr, "on").unwrap();
+        assert!(has(&smr));
+        patch_rdf(&radar, "off").unwrap();
+        patch_rdf(&smr, "off").unwrap();
+        assert!(!has(&radar) && !has(&smr));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn cid_validation() {

@@ -402,6 +402,10 @@ impl App {
                 Self::yes_no(ui, "Realistic code/callsign conversion", &mut c.realistic_conversion);
                 Self::choice_ui(ui, &mut self.textures, "coastline", "Coastline colour", config::COAST_OPTIONS, &mut c.coast_choice);
                 Self::choice_ui(ui, &mut self.textures, "land", "Land colour", config::LAND_OPTIONS, &mut c.land_choice);
+                ui.label("RDF (radio direction finding)");
+                for (key, label) in config::RDF_OPTIONS {
+                    ui.radio_value(&mut c.rdf_mode, key.to_string(), *label);
+                }
                 ui.horizontal(|ui| {
                     let bound = if c.asel_key.is_empty() {
                         "default (NUMPLUS)".to_string()
