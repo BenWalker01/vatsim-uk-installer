@@ -7,12 +7,31 @@ use std::path::{Path, PathBuf};
 pub const CONFIG_FILE: &str = "controller_pack_config.json";
 
 pub const RATINGS: &[&str] = &[
-    "OBS", "S1", "S2", "S3", "C1", "C2 (not used)", "C3", "I1", "I2 (not used)", "I3", "SUP", "ADM",
+    "OBS",
+    "S1",
+    "S2",
+    "S3",
+    "C1",
+    "C2 (not used)",
+    "C3",
+    "I1",
+    "I2 (not used)",
+    "I3",
+    "SUP",
+    "ADM",
 ];
 
 pub const COAST_OPTIONS: &[(&str, &str, &str)] = &[
-    ("1", "Blue (default): suitable for NOVA based systems (most APP units)", "9076039"),
-    ("2", "Grey: suitable for NODE based systems (STC, LTC, MPC)", "5324604"),
+    (
+        "1",
+        "Blue (default): suitable for NOVA based systems (most APP units)",
+        "9076039",
+    ),
+    (
+        "2",
+        "Grey: suitable for NODE based systems (STC, LTC, MPC)",
+        "5324604",
+    ),
     ("3", "Yellow: high contrast", "32896"),
 ];
 
@@ -145,7 +164,8 @@ pub fn load(pack_dir: Option<&Path>) -> Config {
 
 /// Whether a config exists locally or in the pack.
 pub fn exists(pack_dir: Option<&Path>) -> bool {
-    local_path().is_some_and(|p| p.exists()) || pack_dir.is_some_and(|d| d.join(CONFIG_FILE).exists())
+    local_path().is_some_and(|p| p.exists())
+        || pack_dir.is_some_and(|d| d.join(CONFIG_FILE).exists())
 }
 
 pub fn save(cfg: &Config) -> anyhow::Result<()> {
@@ -198,7 +218,9 @@ pub fn pressed_vk() -> Option<u32> {
 }
 
 fn read_text(path: &Path) -> anyhow::Result<String> {
-    Ok(std::fs::read_to_string(path)?.replace("\r\n", "\n").replace('\r', "\n"))
+    Ok(std::fs::read_to_string(path)?
+        .replace("\r\n", "\n")
+        .replace('\r', "\n"))
 }
 
 fn write_text(path: &Path, text: &str) -> anyhow::Result<()> {
@@ -207,7 +229,9 @@ fn write_text(path: &Path, text: &str) -> anyhow::Result<()> {
 }
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in rd.flatten() {
         let p = e.path();
         if p.is_dir() {
@@ -219,11 +243,14 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 fn file_name(p: &Path) -> String {
-    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+    p.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 fn ends_with_ci(s: &str, suffix: &str) -> bool {
-    s.to_ascii_lowercase().ends_with(&suffix.to_ascii_lowercase())
+    s.to_ascii_lowercase()
+        .ends_with(&suffix.to_ascii_lowercase())
 }
 
 fn patch_prf(path: &Path, cfg: &Config) -> anyhow::Result<()> {
@@ -231,7 +258,11 @@ fn patch_prf(path: &Path, cfg: &Config) -> anyhow::Result<()> {
     const KEYS: [&str; 5] = ["realname", "certificate", "rating", "callsign", "password"];
     let mut lines: Vec<String> = text
         .lines()
-        .filter(|l| !KEYS.iter().any(|k| l.starts_with(&format!("LastSession\t{k}"))))
+        .filter(|l| {
+            !KEYS
+                .iter()
+                .any(|k| l.starts_with(&format!("LastSession\t{k}")))
+        })
         .map(String::from)
         .collect();
     lines.push(String::new());
@@ -262,7 +293,10 @@ fn discord_dll_rel(prf: &Path) -> String {
     let dir = prf.parent().unwrap_or(Path::new("."));
     for (depth, root) in dir.ancestors().enumerate() {
         if root.join("Data").join("Plugin").exists() {
-            return format!("\\{}Data\\Plugin\\DiscordEuroscope.dll", "..\\".repeat(depth));
+            return format!(
+                "\\{}Data\\Plugin\\DiscordEuroscope.dll",
+                "..\\".repeat(depth)
+            );
         }
     }
     r"\..\Data\Plugin\DiscordEuroscope.dll".into()
@@ -275,7 +309,10 @@ fn patch_discord(path: &Path, enabled: bool) -> anyhow::Result<()> {
     if !enabled {
         if has {
             lines.retain(|l| !l.contains("DiscordEuroscope.dll"));
-            write_text(path, &(lines.join("\n").trim_end_matches('\n').to_string() + "\n"))?;
+            write_text(
+                path,
+                &(lines.join("\n").trim_end_matches('\n').to_string() + "\n"),
+            )?;
         }
         return Ok(());
     }
@@ -303,14 +340,20 @@ fn patch_discord(path: &Path, enabled: bool) -> anyhow::Result<()> {
             lines.push(new_line);
         }
     }
-    write_text(path, &(lines.join("\n").trim_end_matches('\n').to_string() + "\n"))
+    write_text(
+        path,
+        &(lines.join("\n").trim_end_matches('\n').to_string() + "\n"),
+    )
 }
 
 fn patch_plugins(path: &Path, cpdlc: &str) -> anyhow::Result<()> {
     let text = read_text(path)?;
     let line = format!("vSMR Vatsim UK:cpdlc_password:{cpdlc}");
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
-    if let Some(l) = lines.iter_mut().find(|l| l.starts_with("vSMR Vatsim UK:cpdlc_password:")) {
+    if let Some(l) = lines
+        .iter_mut()
+        .find(|l| l.starts_with("vSMR Vatsim UK:cpdlc_password:"))
+    {
         *l = line;
     } else if let Some(i) = lines.iter().position(|l| l.trim() == "END") {
         lines.insert(i, line);
@@ -335,13 +378,16 @@ fn lookup(options: &[(&'static str, &'static str, &'static str)], key: &str) -> 
 }
 
 fn patch_asr(path: &Path, root: &Path, realistic_tags: bool) -> anyhow::Result<()> {
-    let rel = path.strip_prefix(root.join("Data").join("ASR")).unwrap_or(path);
+    let rel = path
+        .strip_prefix(root.join("Data").join("ASR"))
+        .unwrap_or(path);
     let mut comps = rel.components();
     let top = match (comps.next(), comps.next()) {
         (Some(c), Some(_)) => c.as_os_str().to_string_lossy().to_lowercase(),
         _ => String::new(),
     };
-    if !(top.starts_with("ac_") || ["ltc", "heathrow", "gatwick", "essex"].contains(&top.as_str())) {
+    if !(top.starts_with("ac_") || ["ltc", "heathrow", "gatwick", "essex"].contains(&top.as_str()))
+    {
         return Ok(());
     }
     let text = read_text(path)?;
@@ -447,7 +493,11 @@ fn patch_correlation(path: &Path, on: bool) -> anyhow::Result<()> {
 
 /// Patch the pack in `root` according to `cfg`. Per-file failures are collected, not fatal.
 pub fn apply(cfg: &Config, root: &Path, shared: &download::Shared) -> anyhow::Result<()> {
-    anyhow::ensure!(root.is_dir(), "Controller pack folder not found: {}", root.display());
+    anyhow::ensure!(
+        root.is_dir(),
+        "Controller pack folder not found: {}",
+        root.display()
+    );
     download::set_message(shared, "Applying configuration");
     let mut files = Vec::new();
     walk(root, &mut files);
@@ -474,7 +524,10 @@ pub fn apply(cfg: &Config, root: &Path, shared: &download::Shared) -> anyhow::Re
         } else if name.starts_with("UK") && ends_with_ci(&name, ".ese") {
             note(replace_in(p, "EXAMPLE", &cfg.initials), p);
         } else if name == "SIMBOLOGY.txt" {
-            if let Some((_, _, size)) = FONT_OPTIONS.iter().find(|o| o.0 == cfg.font_size && !o.2.is_empty()) {
+            if let Some((_, _, size)) = FONT_OPTIONS
+                .iter()
+                .find(|o| o.0 == cfg.font_size && !o.2.is_empty())
+            {
                 note(patch_symbology_font(p, size), p);
             }
         } else if name.ends_with("Profiles.txt") {
@@ -493,7 +546,9 @@ pub fn apply(cfg: &Config, root: &Path, shared: &download::Shared) -> anyhow::Re
         let dir = root.join("Data").join("Plugin").join(sys);
         let target = dir.join("TopSkyCPDLChoppieCode.txt");
         note(
-            std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&target, &cfg.cpdlc)).map_err(Into::into),
+            std::fs::create_dir_all(&dir)
+                .and_then(|_| std::fs::write(&target, &cfg.cpdlc))
+                .map_err(Into::into),
             &target,
         );
     }
@@ -543,7 +598,11 @@ mod tests {
         let smr = dir.join("s.asr");
         std::fs::write(&radar, "DisplayTypeName:Radar\n").unwrap();
         std::fs::write(&smr, "DisplayTypeName:SMR\n").unwrap();
-        let has = |p: &Path| std::fs::read_to_string(p).unwrap().contains("RDF Plugin for Euroscope:EnableDraw:1");
+        let has = |p: &Path| {
+            std::fs::read_to_string(p)
+                .unwrap()
+                .contains("RDF Plugin for Euroscope:EnableDraw:1")
+        };
         patch_rdf(&radar, "radar").unwrap();
         patch_rdf(&smr, "radar").unwrap();
         assert!(has(&radar) && !has(&smr));
@@ -576,7 +635,8 @@ mod tests {
 
     #[test]
     fn old_json_loads() {
-        let c: Config = serde_json::from_str(r#"{"name":"A","cid":"1234567","coast_choice":"2"}"#).unwrap();
+        let c: Config =
+            serde_json::from_str(r#"{"name":"A","cid":"1234567","coast_choice":"2"}"#).unwrap();
         assert_eq!(c.coast_choice, "2");
         assert_eq!(c.land_choice, "1");
     }
@@ -586,7 +646,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ukcfg-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("Data").join("Plugin")).unwrap();
         let prf = dir.join("a.prf");
-        std::fs::write(&prf, "Plugins\tPlugin1\tx.dll\nLastSession\tpassword\told\n").unwrap();
+        std::fs::write(
+            &prf,
+            "Plugins\tPlugin1\tx.dll\nLastSession\tpassword\told\n",
+        )
+        .unwrap();
         let cfg = Config {
             name: "N".into(),
             initials: "AB".into(),

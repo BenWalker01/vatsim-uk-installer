@@ -31,7 +31,11 @@ impl FromStr for PackVersion {
         if chars.next().is_some() || suffix.is_some_and(|c| !c.is_ascii_lowercase()) {
             anyhow::bail!("bad pack version: {s}");
         }
-        Ok(PackVersion { year: y.parse()?, month: m.parse()?, suffix })
+        Ok(PackVersion {
+            year: y.parse()?,
+            month: m.parse()?,
+            suffix,
+        })
     }
 }
 
@@ -53,7 +57,9 @@ impl Serialize for PackVersion {
 
 impl<'de> Deserialize<'de> for PackVersion {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        String::deserialize(d)?.parse().map_err(serde::de::Error::custom)
+        String::deserialize(d)?
+            .parse()
+            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -114,8 +120,12 @@ fn cache_paths() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
 
 fn fetch_releases_json() -> anyhow::Result<String> {
     let cache = cache_paths();
-    let cached = cache.as_ref().and_then(|(b, _)| std::fs::read_to_string(b).ok());
-    let etag = cache.as_ref().and_then(|(_, e)| std::fs::read_to_string(e).ok());
+    let cached = cache
+        .as_ref()
+        .and_then(|(b, _)| std::fs::read_to_string(b).ok());
+    let etag = cache
+        .as_ref()
+        .and_then(|(_, e)| std::fs::read_to_string(e).ok());
 
     let mut req = crate::download::agent()
         .get(RELEASES_URL)
@@ -171,7 +181,9 @@ fn parse_releases(body: &str) -> anyhow::Result<Vec<PackRelease>> {
         if rel.draft || rel.prerelease {
             continue;
         }
-        let Ok(version) = rel.tag_name.parse::<PackVersion>() else { continue };
+        let Ok(version) = rel.tag_name.parse::<PackVersion>() else {
+            continue;
+        };
         let find = |name: String| {
             rel.assets.iter().find(|a| a.name == name).and_then(|a| {
                 Some(Asset {
@@ -186,7 +198,11 @@ fn parse_releases(body: &str) -> anyhow::Result<Vec<PackRelease>> {
         ) else {
             continue;
         };
-        out.push(PackRelease { version, full, changes_only });
+        out.push(PackRelease {
+            version,
+            full,
+            changes_only,
+        });
     }
     out.sort_by_key(|r| r.version);
     Ok(out)
@@ -211,7 +227,11 @@ mod tests {
     #[ignore = "hits the GitHub API"]
     fn fetches_live_releases() {
         let m = Manifest::fetch().unwrap();
-        println!("{} releases, latest {}", m.releases.len(), m.latest().unwrap().version);
+        println!(
+            "{} releases, latest {}",
+            m.releases.len(),
+            m.latest().unwrap().version
+        );
         assert!(m.latest().is_some());
         // Second call exercises the ETag/304 path.
         assert_eq!(Manifest::fetch().unwrap().releases.len(), m.releases.len());

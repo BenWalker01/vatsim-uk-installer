@@ -13,35 +13,63 @@ pub fn default_dir() -> Option<PathBuf> {
 
 /// Version recorded in `<dir>\version.txt` (the source of truth), if present and a valid tag.
 pub fn installed_version(dir: &Path) -> Option<PackVersion> {
-    std::fs::read_to_string(dir.join("version.txt")).ok()?.trim().parse().ok()
+    std::fs::read_to_string(dir.join("version.txt"))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
 }
-
 
 /// Download and extract the full pack for `release` into `dest`.
 pub fn install_full(release: &PackRelease, dest: &Path, shared: &Shared) -> anyhow::Result<()> {
-    download_and_extract(&release.full, dest, shared, &format!("Installing controller pack {}", release.version))
+    download_and_extract(
+        &release.full,
+        dest,
+        shared,
+        &format!("Installing controller pack {}", release.version),
+    )
 }
 
 /// Download and overlay the changes-only zip for `release` onto `dest`.
 /// The caller saves `State.pack_version` after each successful patch.
 pub fn apply_changes(release: &PackRelease, dest: &Path, shared: &Shared) -> anyhow::Result<()> {
-    download_and_extract(&release.changes_only, dest, shared, &format!("Applying update {}", release.version))
+    download_and_extract(
+        &release.changes_only,
+        dest,
+        shared,
+        &format!("Applying update {}", release.version),
+    )
 }
 
-fn download_and_extract(asset: &Asset, dest: &Path, shared: &Shared, message: &str) -> anyhow::Result<()> {
+fn download_and_extract(
+    asset: &Asset,
+    dest: &Path,
+    shared: &Shared,
+    message: &str,
+) -> anyhow::Result<()> {
     download::set_message(shared, message);
     std::fs::create_dir_all(dest)?;
     let tmp = std::env::temp_dir().join(format!("vatsim-uk-installer-{}.zip", std::process::id()));
-    let result = download::download(&asset.url, &asset.sha256, &tmp, shared).and_then(|_| extract(&tmp, dest));
+    let result = download::download(&asset.url, &asset.sha256, &tmp, shared)
+        .and_then(|_| extract(&tmp, dest));
     let _ = std::fs::remove_file(&tmp);
     result
 }
 
 /// Download the full pack for `release` and return its pristine ASR files (`Data/ASR/**.asr`),
 /// keyed by path relative to `Data/ASR`. Nothing is written to the pack.
-pub fn fetch_pristine_asrs(release: &PackRelease, shared: &Shared) -> anyhow::Result<crate::layout::Baseline> {
-    download::set_message(shared, format!("Downloading pack {} for comparison", release.version));
-    let tmp = std::env::temp_dir().join(format!("vatsim-uk-installer-ref-{}.zip", std::process::id()));
+pub fn fetch_pristine_asrs(
+    release: &PackRelease,
+    shared: &Shared,
+) -> anyhow::Result<crate::layout::Baseline> {
+    download::set_message(
+        shared,
+        format!("Downloading pack {} for comparison", release.version),
+    );
+    let tmp = std::env::temp_dir().join(format!(
+        "vatsim-uk-installer-ref-{}.zip",
+        std::process::id()
+    ));
     let result = download::download(&release.full.url, &release.full.sha256, &tmp, shared)
         .and_then(|_| read_asrs_from_zip(&tmp));
     let _ = std::fs::remove_file(&tmp);
@@ -54,9 +82,17 @@ fn read_asrs_from_zip(zip_path: &Path) -> anyhow::Result<crate::layout::Baseline
     let mut out = crate::layout::Baseline::new();
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
-        let Some(full) = entry.enclosed_name() else { continue };
-        let Ok(rel) = full.strip_prefix(Path::new("UK").join("Data").join("ASR")) else { continue };
-        if entry.is_dir() || !rel.extension().is_some_and(|x| x.eq_ignore_ascii_case("asr")) {
+        let Some(full) = entry.enclosed_name() else {
+            continue;
+        };
+        let Ok(rel) = full.strip_prefix(Path::new("UK").join("Data").join("ASR")) else {
+            continue;
+        };
+        if entry.is_dir()
+            || !rel
+                .extension()
+                .is_some_and(|x| x.eq_ignore_ascii_case("asr"))
+        {
             continue;
         }
         let mut bytes = Vec::new();
@@ -76,7 +112,9 @@ fn extract(zip_path: &Path, dest: &Path) -> anyhow::Result<()> {
         let Some(full) = entry.enclosed_name() else {
             anyhow::bail!("unsafe path in zip: {}", entry.name());
         };
-        let Ok(rel) = full.strip_prefix("UK") else { continue };
+        let Ok(rel) = full.strip_prefix("UK") else {
+            continue;
+        };
         if rel.as_os_str().is_empty() {
             continue;
         }
@@ -105,7 +143,11 @@ mod tests {
         let dest = std::env::temp_dir().join("vuk-live-patch");
         let _ = std::fs::remove_dir_all(&dest);
         apply_changes(m.latest().unwrap(), &dest, &Shared::default()).unwrap();
-        let top: Vec<_> = std::fs::read_dir(&dest).unwrap().flatten().map(|e| e.file_name()).collect();
+        let top: Vec<_> = std::fs::read_dir(&dest)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
         println!("top-level: {top:?}");
         assert!(!dest.join("UK").exists());
         assert!(top.len() > 0);
@@ -130,9 +172,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let zip_path = dir.join("t.zip");
         let mut w = zip::ZipWriter::new(std::fs::File::create(&zip_path).unwrap());
-        w.start_file("UK/a/b.txt", zip::write::SimpleFileOptions::default()).unwrap();
+        w.start_file("UK/a/b.txt", zip::write::SimpleFileOptions::default())
+            .unwrap();
         w.write_all(b"new").unwrap();
-        w.start_file("README.pdf", zip::write::SimpleFileOptions::default()).unwrap();
+        w.start_file("README.pdf", zip::write::SimpleFileOptions::default())
+            .unwrap();
         w.write_all(b"x").unwrap();
         w.finish().unwrap();
 
@@ -140,7 +184,10 @@ mod tests {
         std::fs::create_dir_all(dest.join("a")).unwrap();
         std::fs::write(dest.join("a").join("b.txt"), "old").unwrap();
         extract(&zip_path, &dest).unwrap();
-        assert_eq!(std::fs::read_to_string(dest.join("a").join("b.txt")).unwrap(), "new");
+        assert_eq!(
+            std::fs::read_to_string(dest.join("a").join("b.txt")).unwrap(),
+            "new"
+        );
         assert!(!dest.join("README.pdf").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }

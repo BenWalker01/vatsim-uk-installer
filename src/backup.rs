@@ -47,7 +47,11 @@ fn format_utc(secs: u64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02} UTC", rem / 3600, rem % 3600 / 60)
+    format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02} UTC",
+        rem / 3600,
+        rem % 3600 / 60
+    )
 }
 
 fn parse_name(file: &str) -> Option<(String, u64)> {
@@ -58,12 +62,19 @@ fn parse_name(file: &str) -> Option<(String, u64)> {
 
 /// All backups, newest first.
 pub fn list() -> Vec<Backup> {
-    let Some(rd) = dir().and_then(|d| std::fs::read_dir(d).ok()) else { return Vec::new() };
+    let Some(rd) = dir().and_then(|d| std::fs::read_dir(d).ok()) else {
+        return Vec::new();
+    };
     let mut out: Vec<Backup> = rd
         .flatten()
         .filter_map(|e| {
             let (tag, secs) = parse_name(&e.file_name().to_string_lossy())?;
-            Some(Backup { path: e.path(), tag, secs, size: e.metadata().ok()?.len() })
+            Some(Backup {
+                path: e.path(),
+                tag,
+                secs,
+                size: e.metadata().ok()?.len(),
+            })
         })
         .collect();
     out.sort_by(|a, b| b.secs.cmp(&a.secs));
@@ -71,11 +82,20 @@ pub fn list() -> Vec<Backup> {
 }
 
 /// Zip the pack at `pack_dir` into the backup folder, then prune to `keep` backups.
-pub fn create(pack_dir: &Path, tag: Option<&str>, keep: usize, shared: &Shared) -> anyhow::Result<PathBuf> {
+pub fn create(
+    pack_dir: &Path,
+    tag: Option<&str>,
+    keep: usize,
+    shared: &Shared,
+) -> anyhow::Result<PathBuf> {
     download::set_message(shared, "Backing up your existing pack");
     let root = dir().ok_or_else(|| anyhow::anyhow!("no config dir"))?;
     std::fs::create_dir_all(&root)?;
-    let dest = root.join(format!("UK_{}_{}.zip", tag.unwrap_or("unknown"), now_secs()));
+    let dest = root.join(format!(
+        "UK_{}_{}.zip",
+        tag.unwrap_or("unknown"),
+        now_secs()
+    ));
     if let Err(e) = write_zip(pack_dir, &dest) {
         let _ = std::fs::remove_file(&dest);
         return Err(e);
@@ -85,7 +105,10 @@ pub fn create(pack_dir: &Path, tag: Option<&str>, keep: usize, shared: &Shared) 
 }
 
 fn write_zip(src: &Path, dest: &Path) -> anyhow::Result<()> {
-    let mut zip = zip::ZipWriter::new(std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(dest)?));
+    let mut zip = zip::ZipWriter::new(std::io::BufWriter::with_capacity(
+        1 << 20,
+        std::fs::File::create(dest)?,
+    ));
     // Fastest deflate: much quicker than the default level for a modest size cost.
     let opts = zip::write::SimpleFileOptions::default().compression_level(Some(1));
     add_dir(&mut zip, src, src, opts)?;
@@ -184,7 +207,10 @@ mod tests {
 
     #[test]
     fn parses_names_and_dates() {
-        assert_eq!(parse_name("UK_2026_09a_1760000000.zip"), Some(("2026_09a".into(), 1760000000)));
+        assert_eq!(
+            parse_name("UK_2026_09a_1760000000.zip"),
+            Some(("2026_09a".into(), 1760000000))
+        );
         assert_eq!(parse_name("other.zip"), None);
         assert_eq!(format_utc(0), "1970-01-01 00:00 UTC");
         assert_eq!(format_utc(1_760_000_000), "2025-10-09 08:53 UTC");
@@ -198,11 +224,19 @@ mod tests {
         std::fs::write(src.join("Data").join("a.txt"), "hi").unwrap();
         let zip = base.join("UK_t_1.zip");
         write_zip(&src, &zip).unwrap();
-        let b = Backup { path: zip, tag: "t".into(), secs: 1, size: 0 };
+        let b = Backup {
+            path: zip,
+            tag: "t".into(),
+            secs: 1,
+            size: 0,
+        };
         assert_eq!(contents(&b).unwrap(), ["Data/a.txt"]);
         std::fs::write(src.join("Data").join("a.txt"), "changed").unwrap();
         restore(&b, &src, &Shared::default()).unwrap();
-        assert_eq!(std::fs::read_to_string(src.join("Data").join("a.txt")).unwrap(), "hi");
+        assert_eq!(
+            std::fs::read_to_string(src.join("Data").join("a.txt")).unwrap(),
+            "hi"
+        );
         std::fs::remove_dir_all(&base).unwrap();
     }
 }

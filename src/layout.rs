@@ -56,7 +56,9 @@ pub fn norm(text: &str) -> String {
 }
 
 fn collect_asrs(dir: &Path, root: &Path, out: &mut Baseline) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in rd.flatten() {
         let p = e.path();
         if p.is_dir() {
@@ -95,7 +97,9 @@ fn line_set(text: &str) -> BTreeSet<&str> {
 fn diff(baseline: &Baseline, current: &Baseline) -> Layout {
     let mut out = Layout::new();
     for (name, now) in current {
-        let Some(before) = baseline.get(name) else { continue };
+        let Some(before) = baseline.get(name) else {
+            continue;
+        };
         let (a, b) = (line_set(before), line_set(now));
         let change = FileChange {
             removed: a.difference(&b).map(|s| s.to_string()).collect(),
@@ -111,7 +115,10 @@ fn diff(baseline: &Baseline, current: &Baseline) -> Layout {
 /// Diff the pack's ASRs against `pristine` (the same pack version, unmodified) and store the result,
 /// replacing any earlier layout. Returns the number of files with changes.
 pub fn save_changes(pack: &Path, pristine: &Baseline) -> anyhow::Result<usize> {
-    anyhow::ensure!(!pristine.is_empty(), "The reference pack contained no ASR files.");
+    anyhow::ensure!(
+        !pristine.is_empty(),
+        "The reference pack contained no ASR files."
+    );
     let changes = diff(pristine, &read_asrs(pack));
     let count = changes.len();
     save_json(LAYOUT_FILE, &changes)?;
@@ -142,7 +149,9 @@ fn apply_layout(pack: &Path, layout: &Layout) -> anyhow::Result<usize> {
     let mut applied = 0;
     for (name, change) in layout {
         let path = root.join(name);
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         std::fs::write(&path, apply_change(&text, change))?;
         applied += 1;
     }
@@ -154,7 +163,10 @@ mod tests {
     use super::*;
 
     fn map(pairs: &[(&str, &str)]) -> Baseline {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -164,7 +176,11 @@ mod tests {
         let layout = diff(&before, &after);
         assert_eq!(layout.len(), 1);
         let fresh = apply_change("WINDOWAREA:1:2\nFOO:1\n", &layout["a.asr"]);
-        assert!(fresh.contains("WINDOWAREA:5:6") && !fresh.contains("WINDOWAREA:1:2") && fresh.contains("FOO:1"));
+        assert!(
+            fresh.contains("WINDOWAREA:5:6")
+                && !fresh.contains("WINDOWAREA:1:2")
+                && fresh.contains("FOO:1")
+        );
         // Idempotent.
         assert_eq!(apply_change(&fresh, &layout["a.asr"]), fresh);
     }
@@ -172,7 +188,10 @@ mod tests {
     #[test]
     fn config_lines_are_ignored() {
         let before = map(&[("a.asr", "TAGFAMILY:NODE\nSECTORFILE:UK\\a_09.sct\nP:1\n")]);
-        let after = map(&[("a.asr", "TAGFAMILY:NODE-Easy\nSECTORFILE:UK\\a_10.sct\nSECTORTITLE:x\nP:1\nPLUGIN:RDF Plugin for Euroscope:EnableDraw:1\n")]);
+        let after = map(&[(
+            "a.asr",
+            "TAGFAMILY:NODE-Easy\nSECTORFILE:UK\\a_10.sct\nSECTORTITLE:x\nP:1\nPLUGIN:RDF Plugin for Euroscope:EnableDraw:1\n",
+        )]);
         assert!(diff(&before, &after).is_empty());
     }
 }

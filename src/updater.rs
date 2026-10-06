@@ -22,12 +22,25 @@ pub fn plan(manifest: &Manifest, installed: Option<PackVersion>) -> Option<Plan>
     if !manifest.releases.iter().any(|r| r.version == current) {
         return Some(Plan::Reinstall(latest.clone()));
     }
-    let pending: Vec<_> = manifest.releases.iter().filter(|r| r.version > current).cloned().collect();
-    Some(if pending.is_empty() { Plan::UpToDate } else { Plan::Patches(pending) })
+    let pending: Vec<_> = manifest
+        .releases
+        .iter()
+        .filter(|r| r.version > current)
+        .cloned()
+        .collect();
+    Some(if pending.is_empty() {
+        Plan::UpToDate
+    } else {
+        Plan::Patches(pending)
+    })
 }
 
 /// Run a plan, saving the installed version after every step so an interruption resumes cleanly.
-pub fn execute(plan: Plan, dir: &std::path::Path, shared: &crate::download::Shared) -> anyhow::Result<()> {
+pub fn execute(
+    plan: Plan,
+    dir: &std::path::Path,
+    shared: &crate::download::Shared,
+) -> anyhow::Result<()> {
     let mut state = crate::state::State::load();
     state.pack_dir = Some(dir.to_path_buf());
     match plan {
@@ -54,13 +67,23 @@ mod tests {
     use crate::manifest::{Asset, EuroScopeInfo};
 
     fn rel(tag: &str) -> PackRelease {
-        let a = Asset { url: String::new(), sha256: String::new() };
-        PackRelease { version: tag.parse().unwrap(), full: a.clone(), changes_only: a }
+        let a = Asset {
+            url: String::new(),
+            sha256: String::new(),
+        };
+        PackRelease {
+            version: tag.parse().unwrap(),
+            full: a.clone(),
+            changes_only: a,
+        }
     }
 
     fn manifest(tags: &[&str]) -> Manifest {
         Manifest {
-            euroscope: EuroScopeInfo { required_version: String::new(), download_url: String::new() },
+            euroscope: EuroScopeInfo {
+                required_version: String::new(),
+                download_url: String::new(),
+            },
             vcredist_url: String::new(),
             releases: tags.iter().map(|t| rel(t)).collect(),
         }

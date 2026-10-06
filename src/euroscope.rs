@@ -25,10 +25,14 @@ const CANDIDATES: &[&str] = &[
 ];
 
 pub fn detect() -> Option<Detected> {
-    CANDIDATES.iter().map(PathBuf::from).find(|p| p.exists()).map(|path| Detected {
-        version: file_version(&path),
-        path,
-    })
+    CANDIDATES
+        .iter()
+        .map(PathBuf::from)
+        .find(|p| p.exists())
+        .map(|path| Detected {
+            version: file_version(&path),
+            path,
+        })
 }
 
 /// Reads the `FileVersion` string resource (English/Unicode block) from an exe.
@@ -83,7 +87,11 @@ pub fn file_version(_path: &std::path::Path) -> Option<String> {
 /// EuroScope must be exactly the required version: newer releases are not supported.
 /// Trailing zero components are ignored, so "3.2.3" == "3.2.3.0".
 pub fn is_required_version(found: &str, required: &str) -> bool {
-    let parse = |s: &str| s.split('.').map(|p| p.trim().parse::<u32>().unwrap_or(0)).collect::<Vec<_>>();
+    let parse = |s: &str| {
+        s.split('.')
+            .map(|p| p.trim().parse::<u32>().unwrap_or(0))
+            .collect::<Vec<_>>()
+    };
     let (mut a, mut b) = (parse(found), parse(required));
     let n = a.len().max(b.len());
     a.resize(n, 0);
