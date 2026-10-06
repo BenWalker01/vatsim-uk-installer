@@ -68,6 +68,10 @@ fn main() -> eframe::Result {
                 visuals.widgets.active.bg_fill = Color32::from_rgb(47, 71, 96);
                 visuals.widgets.active.bg_stroke =
                     Stroke::new(1.0, Color32::from_rgb(117, 169, 222));
+                visuals.widgets.noninteractive.corner_radius = eframe::egui::CornerRadius::same(3);
+                visuals.widgets.inactive.corner_radius = eframe::egui::CornerRadius::same(3);
+                visuals.widgets.hovered.corner_radius = eframe::egui::CornerRadius::same(3);
+                visuals.widgets.active.corner_radius = eframe::egui::CornerRadius::same(3);
                 style.visuals = visuals;
             });
             Ok(Box::new(app::App::new()))

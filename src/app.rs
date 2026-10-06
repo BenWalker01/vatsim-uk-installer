@@ -26,10 +26,10 @@ enum Step {
 const STEPS: &[(Step, &str)] = &[
     (Step::Welcome, "Welcome"),
     (Step::EuroScope, "EuroScope"),
-    (Step::VcRedist, "VC++ Redistributable"),
+    (Step::VcRedist, "VC++ Runtime"),
     (Step::ControllerPack, "Controller Pack"),
     (Step::Updates, "Updates"),
-    (Step::Configure, "Configuration"),
+    (Step::Configure, "Settings"),
     (Step::Backups, "Backups"),
     (Step::Done, "Finish"),
 ];
@@ -897,6 +897,9 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_job(ui);
         egui::Panel::left("steps")
+            .resizable(false)
+            .default_size(232.0)
+            .size_range(232.0..=232.0)
             .frame(
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgb(30, 34, 40))
@@ -944,11 +947,14 @@ impl eframe::App for App {
                             } else {
                                 egui::Color32::TRANSPARENT
                             })
-                            .corner_radius(egui::CornerRadius::same(6))
+                            .corner_radius(egui::CornerRadius::same(2))
                             .inner_margin(egui::Margin::symmetric(8, 5))
                             .show(ui, |ui| {
-                                ui.set_min_width(ui.available_width());
-                                ui.label(text);
+                                ui.set_width(ui.available_width());
+                                ui.add_sized(
+                                    [ui.available_width(), 24.0],
+                                    egui::Label::new(text).truncate(),
+                                );
                             });
                     } else if ui.selectable_label(active, text).clicked() {
                         self.step = *s;
@@ -1044,10 +1050,6 @@ impl eframe::App for App {
                 .color(egui::Color32::from_rgb(176, 184, 194)));
             ui.add_space(16.0);
             egui::Frame::new()
-                .fill(egui::Color32::from_rgb(32, 36, 42))
-                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(53, 60, 69)))
-                .corner_radius(egui::CornerRadius::same(8))
-                .inner_margin(egui::Margin::same(20))
                 .show(ui, |ui| {
             match self.step {
                 Step::Welcome => {
