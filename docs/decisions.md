@@ -6,7 +6,7 @@
 |---|----------|-----------|
 | 1 | Rust + egui/eframe for the GUI | Single native binary, no runtime to install; fits the "one stop shop" goal. |
 | 2 | Wizard flow: Welcome → EuroScope → VC++ Redist → Controller Pack → Updates → Finish | Matches the requested first-run order. |
-| 3 | Pack versions are the GitHub release tags: `YYYY_MM` plus optional hotfix letter (`2026_09a`), ordered chronologically (`PackVersion`) | Matches https://github.com/VATSIM-UK/uk-controller-pack/releases. |
+| 3 | Pack versions are the GitHub release tags: AIRAC year and cycle (`YYYY_CC`) plus optional hotfix letter (`2026_09a`), ordered chronologically (`PackVersion`) | Matches https://github.com/VATSIM-UK/uk-controller-pack/releases. |
 | 4 | Each release ships `uk_controller_pack_<tag>.zip` (full) and `changes_only_<tag>.zip` (diff vs previous release); updating applies every release after the installed one, oldest first | Verified against the 2026_10 release. `updater::plan` does this. |
 | 5 | No installed version, or an installed tag not in the release list, triggers a full install of the latest release | Safe fallback; no patches needed since the full zip is current. |
 | 6 | Installer state stored in `%APPDATA%\vatsim-uk-installer\state.json` | Tracks installed pack version and paths. |

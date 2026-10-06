@@ -8,12 +8,12 @@ pub const RELEASES_URL: &str =
     "https://api.github.com/repos/VATSIM-UK/uk-controller-pack/releases?per_page=100";
 pub const EUROSCOPE_DOWNLOAD_URL: &str = "https://euroscope.hu/install/EuroScopeSetup.3.2.3.2.msi";
 
-/// Pack release tag: `YYYY_MM` with an optional hotfix letter (`2026_09a`).
+/// Pack release tag: AIRAC year and cycle (`YYYY_CC`) with an optional hotfix letter (`2026_09a`).
 /// Ordering is chronological: `2026_09` < `2026_09a` < `2026_09b` < `2026_10`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PackVersion {
     pub year: u16,
-    pub month: u8,
+    pub cycle: u8,
     pub suffix: Option<char>,
 }
 
@@ -25,7 +25,7 @@ impl FromStr for PackVersion {
             .split_once('_')
             .ok_or_else(|| anyhow::anyhow!("bad pack version: {s}"))?;
         let digits = rest.chars().take_while(|c| c.is_ascii_digit()).count();
-        let (m, suffix) = rest.split_at(digits);
+        let (cycle, suffix) = rest.split_at(digits);
         let mut chars = suffix.chars();
         let suffix = chars.next();
         if chars.next().is_some() || suffix.is_some_and(|c| !c.is_ascii_lowercase()) {
@@ -33,7 +33,7 @@ impl FromStr for PackVersion {
         }
         Ok(PackVersion {
             year: y.parse()?,
-            month: m.parse()?,
+            cycle: cycle.parse()?,
             suffix,
         })
     }
@@ -41,7 +41,7 @@ impl FromStr for PackVersion {
 
 impl fmt::Display for PackVersion {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}_{:02}", self.year, self.month)?;
+        write!(f, "{}_{:02}", self.year, self.cycle)?;
         if let Some(c) = self.suffix {
             write!(f, "{c}")?;
         }

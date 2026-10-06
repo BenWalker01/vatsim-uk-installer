@@ -167,17 +167,69 @@ pub fn contents(b: &Backup) -> anyhow::Result<Vec<String>> {
 /// restore leaves the current pack untouched.
 pub fn restore(b: &Backup, pack_dir: &Path, shared: &Shared) -> anyhow::Result<()> {
     download::set_message(shared, format!("Restoring {}", b.name()));
-    let staging = pack_dir.with_file_name("UK_restoring");
-    let _ = std::fs::remove_dir_all(&staging);
-    std::fs::create_dir_all(&staging)?;
+    let parent = pack_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("pack directory has no parent: {}", pack_dir.display()))?;
+    if !parent.as_os_str().is_empty() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let staging = unique_sibling(pack_dir, "restoring")?;
+    std::fs::create_dir(&staging)?;
     if let Err(e) = extract(&b.path, &staging) {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(e);
     }
-    if pack_dir.exists() {
-        std::fs::remove_dir_all(pack_dir)?;
+    let result = replace_pack(&staging, pack_dir, |from, to| std::fs::rename(from, to));
+    if staging.exists() {
+        let _ = std::fs::remove_dir_all(&staging);
     }
-    std::fs::rename(&staging, pack_dir)?;
+    result
+}
+
+fn unique_sibling(path: &Path, purpose: &str) -> anyhow::Result<PathBuf> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("pack directory has no parent: {}", path.display()))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("invalid pack directory: {}", path.display()))?
+        .to_string_lossy();
+    for attempt in 0..1000 {
+        let candidate = parent.join(format!(
+            ".{name}-{purpose}-{}-{attempt}",
+            std::process::id()
+        ));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    anyhow::bail!(
+        "could not find a temporary directory for {}",
+        path.display()
+    )
+}
+
+fn replace_pack(
+    staging: &Path,
+    pack_dir: &Path,
+    mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+) -> anyhow::Result<()> {
+    if !pack_dir.exists() {
+        return rename(staging, pack_dir).map_err(Into::into);
+    }
+
+    let previous = unique_sibling(pack_dir, "previous")?;
+    rename(pack_dir, &previous)?;
+    if let Err(promote_error) = rename(staging, pack_dir) {
+        return match rename(&previous, pack_dir) {
+            Ok(()) => Err(promote_error.into()),
+            Err(restore_error) => Err(anyhow::anyhow!(
+                "could not restore backup: {promote_error}; could not restore previous pack from {}: {restore_error}",
+                previous.display()
+            )),
+        };
+    }
+    std::fs::remove_dir_all(previous)?;
     Ok(())
 }
 
@@ -237,6 +289,32 @@ mod tests {
             std::fs::read_to_string(src.join("Data").join("a.txt")).unwrap(),
             "hi"
         );
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn failed_promotion_restores_previous_pack() {
+        let base = std::env::temp_dir().join(format!("vuk-restore-{}", std::process::id()));
+        let pack = base.join("UK");
+        let staging = base.join("staging");
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(pack.join("version.txt"), "old").unwrap();
+        std::fs::write(staging.join("version.txt"), "new").unwrap();
+
+        let result = replace_pack(&staging, &pack, |from, to| {
+            if from == staging && to == pack {
+                return Err(std::io::Error::other("simulated promotion failure"));
+            }
+            std::fs::rename(from, to)
+        });
+
+        assert!(result.is_err());
+        assert_eq!(
+            std::fs::read_to_string(pack.join("version.txt")).unwrap(),
+            "old"
+        );
+        assert!(staging.join("version.txt").exists());
         std::fs::remove_dir_all(&base).unwrap();
     }
 }
