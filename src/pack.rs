@@ -3,6 +3,7 @@
 use crate::{
     download::{self, Shared},
     manifest::{Asset, PackRelease, PackVersion},
+    staging,
 };
 use std::path::{Path, PathBuf};
 
@@ -79,14 +80,14 @@ fn update_staged(
         );
     }
 
-    let staging = unique_sibling(dest, "updating")?;
+    let staging = staging::unique_sibling(dest, "updating")?;
     std::fs::create_dir(&staging)?;
     let result = (|| {
         if copy_existing {
             copy_dir_contents(dest, &staging)?;
         }
         update(&staging)?;
-        promote(&staging, dest)
+        staging::replace_dir(&staging, dest)
     })();
     if staging.exists() {
         let _ = std::fs::remove_dir_all(&staging);
@@ -109,49 +110,6 @@ fn copy_dir_contents(source: &Path, dest: &Path) -> anyhow::Result<()> {
             anyhow::bail!("unsupported file type in pack: {}", from.display());
         }
     }
-    Ok(())
-}
-
-fn unique_sibling(path: &Path, purpose: &str) -> anyhow::Result<PathBuf> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("pack directory has no parent: {}", path.display()))?;
-    let name = path
-        .file_name()
-        .ok_or_else(|| anyhow::anyhow!("invalid pack directory: {}", path.display()))?
-        .to_string_lossy();
-    for attempt in 0..1000 {
-        let candidate = parent.join(format!(
-            ".{name}-{purpose}-{}-{attempt}",
-            std::process::id()
-        ));
-        if !candidate.exists() {
-            return Ok(candidate);
-        }
-    }
-    anyhow::bail!(
-        "could not find a temporary directory for {}",
-        path.display()
-    )
-}
-
-fn promote(staging: &Path, dest: &Path) -> anyhow::Result<()> {
-    if !dest.exists() {
-        return std::fs::rename(staging, dest).map_err(Into::into);
-    }
-
-    let previous = unique_sibling(dest, "previous")?;
-    std::fs::rename(dest, &previous)?;
-    if let Err(promote_error) = std::fs::rename(staging, dest) {
-        return match std::fs::rename(&previous, dest) {
-            Ok(()) => Err(promote_error.into()),
-            Err(restore_error) => Err(anyhow::anyhow!(
-                "could not install updated pack: {promote_error}; could not restore previous pack from {}: {restore_error}",
-                previous.display()
-            )),
-        };
-    }
-    std::fs::remove_dir_all(&previous)?;
     Ok(())
 }
 

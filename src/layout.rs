@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const LAYOUT_FILE: &str = "asr_layout.json";
 
@@ -19,31 +19,12 @@ pub struct FileChange {
 /// ASR path -> the lines the user changed.
 pub type Layout = BTreeMap<String, FileChange>;
 
-fn store_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("vatsim-uk-installer"))
-}
-
-fn store_path(name: &str) -> Option<PathBuf> {
-    store_dir().map(|d| d.join(name))
-}
-
-fn save_json<T: Serialize>(name: &str, value: &T) -> anyhow::Result<()> {
-    let p = store_path(name).ok_or_else(|| anyhow::anyhow!("no config dir"))?;
-    std::fs::create_dir_all(p.parent().unwrap())?;
-    std::fs::write(p, serde_json::to_string_pretty(value)?)?;
-    Ok(())
-}
-
-fn load_json<T: for<'de> Deserialize<'de>>(name: &str) -> Option<T> {
-    serde_json::from_str(&std::fs::read_to_string(store_path(name)?).ok()?).ok()
-}
-
 pub fn load_layout() -> Layout {
-    load_json(LAYOUT_FILE).unwrap_or_default()
+    crate::store::load_json(LAYOUT_FILE).unwrap_or_default()
 }
 
 pub fn clear_layout() -> anyhow::Result<()> {
-    if let Some(p) = store_path(LAYOUT_FILE) {
+    if let Some(p) = crate::store::path(LAYOUT_FILE) {
         if p.exists() {
             std::fs::remove_file(p)?;
         }
@@ -121,7 +102,7 @@ pub fn save_changes(pack: &Path, pristine: &Baseline) -> anyhow::Result<usize> {
     );
     let changes = diff(pristine, &read_asrs(pack));
     let count = changes.len();
-    save_json(LAYOUT_FILE, &changes)?;
+    crate::store::save_json(LAYOUT_FILE, &changes)?;
     Ok(count)
 }
 

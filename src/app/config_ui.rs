@@ -1,7 +1,7 @@
-use super::{App, ConfigTab, Job};
+use super::{App, ConfigTab};
 use crate::{
     config::{self, Config},
-    download, layout, pack,
+    layout, pack,
 };
 use eframe::egui;
 
@@ -165,13 +165,10 @@ impl App {
                     .min_size(egui::vec2(200.0, 40.0));
             if ui.add_enabled(idle && problem.is_none(), button).clicked() {
                 let cfg = self.config.clone();
-                let shared = download::Shared::default();
-                let worker = shared.clone();
-                let handle = std::thread::spawn(move || {
+                self.start_job(move |worker| {
                     config::save(&cfg)?;
-                    config::apply(&cfg, &dir, &worker)
+                    config::apply(&cfg, &dir, worker)
                 });
-                self.job = Some(Job { shared, handle });
                 self.status.clear();
             }
             if let Some(msg) = problem {
@@ -367,13 +364,10 @@ impl App {
                 match release {
                     Some(release) => {
                         let pack_dir = pack_dir.to_path_buf();
-                        let shared = download::Shared::default();
-                        let worker = shared.clone();
-                        let handle = std::thread::spawn(move || {
-                            let pristine = pack::fetch_pristine_asrs(&release, &worker)?;
+                        self.start_job(move |worker| {
+                            let pristine = pack::fetch_pristine_asrs(&release, worker)?;
                             layout::save_changes(&pack_dir, &pristine).map(|_| ())
                         });
-                        self.job = Some(Job { shared, handle });
                         self.status.clear();
                     }
                     None => {

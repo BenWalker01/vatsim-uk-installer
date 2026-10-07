@@ -103,6 +103,16 @@ struct Job {
 }
 
 impl App {
+    fn start_job(
+        &mut self,
+        work: impl FnOnce(&download::Shared) -> anyhow::Result<()> + Send + 'static,
+    ) {
+        let shared = download::Shared::default();
+        let worker = shared.clone();
+        let handle = std::thread::spawn(move || work(&worker));
+        self.job = Some(Job { shared, handle });
+    }
+
     fn step_description(&self) -> &'static str {
         match self.step {
             Step::EuroScope => "The UK pack requires EuroScope version 3.2.3.2 exactly",

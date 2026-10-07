@@ -1,14 +1,6 @@
 //! EuroScope detection, version check and install.
 
-use std::{
-    fs::{self, OpenOptions},
-    io::{Read, Write},
-    path::PathBuf,
-    process::Command,
-    sync::atomic::{AtomicU64, Ordering},
-};
-
-use sha2::{Digest, Sha256};
+use std::{path::PathBuf, process::Command};
 
 use crate::download::{self, Shared};
 
@@ -107,44 +99,14 @@ pub fn is_required_version(found: &str, required: &str) -> bool {
 /// Download the MSI and run it with the interactive Windows Installer UI.
 pub fn install(url: &str, shared: &Shared) -> anyhow::Result<()> {
     download::set_message(shared, "Downloading EuroScope installer");
-    let response = download::agent().get(url).call()?;
-    if !response.status().is_success() {
-        anyhow::bail!("download failed: HTTP {} for {url}", response.status());
-    }
-
-    let total = response
-        .headers()
-        .get("content-length")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse::<u64>().ok());
-    shared.lock().unwrap().total = total;
-
-    let (path, mut file) = create_temp_installer()?;
-    let _cleanup = TempInstaller(path.clone());
-    let mut reader = response.into_body().into_reader();
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
-    loop {
-        let n = reader.read(&mut buffer)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buffer[..n]);
-        file.write_all(&buffer[..n])?;
-        shared.lock().unwrap().done += n as u64;
-    }
-    file.flush()?;
-    drop(file);
-
-    let actual = hex::encode(hasher.finalize());
-    if actual != EXPECTED_SHA256 {
-        anyhow::bail!(
-            "EuroScope installer checksum mismatch: expected {EXPECTED_SHA256}, got {actual}"
-        );
-    }
+    let installer =
+        download::download_to_temp(url, EXPECTED_SHA256, "vatsim-uk-euroscope", "msi", shared)?;
 
     download::set_message(shared, "Running EuroScope installer");
-    let status = Command::new("msiexec.exe").arg("/i").arg(&path).status()?;
+    let status = Command::new("msiexec.exe")
+        .arg("/i")
+        .arg(installer.path())
+        .status()?;
     if !status.success() {
         anyhow::bail!("EuroScope installer exited with {status}");
     }
@@ -157,32 +119,6 @@ pub fn open_uninstaller() -> anyhow::Result<()> {
         .arg("ms-settings:appsfeatures")
         .spawn()?;
     Ok(())
-}
-
-struct TempInstaller(PathBuf);
-
-impl Drop for TempInstaller {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
-fn create_temp_installer() -> anyhow::Result<(PathBuf, std::fs::File)> {
-    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-    let dir = std::env::temp_dir();
-    for _ in 0..100 {
-        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        let path = dir.join(format!(
-            "vatsim-uk-euroscope-{}-{id}.msi",
-            std::process::id()
-        ));
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(file) => return Ok((path, file)),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e.into()),
-        }
-    }
-    anyhow::bail!("could not create a temporary EuroScope installer file")
 }
 
 #[cfg(test)]

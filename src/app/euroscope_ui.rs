@@ -1,6 +1,5 @@
 use super::App;
-use super::Job;
-use crate::{download, euroscope};
+use crate::euroscope;
 use eframe::egui;
 
 impl App {
@@ -47,10 +46,7 @@ impl App {
                 {
                     if let Some(m) = &self.manifest {
                         let url = m.euroscope.download_url.clone();
-                        let shared = download::Shared::default();
-                        let worker = shared.clone();
-                        let handle = std::thread::spawn(move || euroscope::install(&url, &worker));
-                        self.job = Some(Job { shared, handle });
+                        self.start_job(move |worker| euroscope::install(&url, worker));
                         self.status.clear();
                     } else {
                         self.status = "Manifest unavailable".into();

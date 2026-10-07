@@ -1,14 +1,7 @@
 //! Visual C++ Redistributable detection and install.
 
-use std::{
-    fs::{self, OpenOptions},
-    io::{Read, Write},
-    path::PathBuf,
-    process::Command,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::process::Command;
 
-use sha2::{Digest, Sha256};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 #[cfg(windows)]
@@ -40,74 +33,15 @@ pub fn is_installed() -> bool {
 /// Download the x86 redistributable and run it silently.
 pub fn install(url: &str, shared: &Shared) -> anyhow::Result<()> {
     download::set_message(shared, "Downloading Visual C++ Redistributable (x86)");
-    let response = download::agent().get(url).call()?;
-    if !response.status().is_success() {
-        anyhow::bail!("download failed: HTTP {} for {url}", response.status());
-    }
-
-    let total = response
-        .headers()
-        .get("content-length")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse::<u64>().ok());
-    shared.lock().unwrap().total = total;
-
-    let (path, mut file) = create_temp_installer()?;
-    let _cleanup = TempInstaller(path.clone());
-    let mut reader = response.into_body().into_reader();
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
-    loop {
-        let n = reader.read(&mut buffer)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buffer[..n]);
-        file.write_all(&buffer[..n])?;
-        shared.lock().unwrap().done += n as u64;
-    }
-    file.flush()?;
-    drop(file);
-
-    let actual = hex::encode(hasher.finalize());
-    if actual != EXPECTED_SHA256 {
-        anyhow::bail!(
-            "Visual C++ Redistributable checksum mismatch: expected {EXPECTED_SHA256}, got {actual}"
-        );
-    }
+    let installer =
+        download::download_to_temp(url, EXPECTED_SHA256, "vatsim-uk-vcredist", "exe", shared)?;
 
     download::set_message(shared, "Installing Visual C++ Redistributable (x86)");
-    let status = Command::new(&path)
+    let status = Command::new(installer.path())
         .args(["/install", "/quiet", "/norestart"])
         .status()?;
     match status.code() {
         Some(0 | 3010) => Ok(()),
         _ => anyhow::bail!("Visual C++ Redistributable installer exited with {status}"),
     }
-}
-
-struct TempInstaller(PathBuf);
-
-impl Drop for TempInstaller {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
-fn create_temp_installer() -> anyhow::Result<(PathBuf, std::fs::File)> {
-    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-    let dir = std::env::temp_dir();
-    for _ in 0..100 {
-        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        let path = dir.join(format!(
-            "vatsim-uk-vcredist-{}-{id}.exe",
-            std::process::id()
-        ));
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(file) => return Ok((path, file)),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e.into()),
-        }
-    }
-    anyhow::bail!("could not create a temporary VC++ redistributable installer file")
 }

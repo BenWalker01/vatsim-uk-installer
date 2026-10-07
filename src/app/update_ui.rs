@@ -1,5 +1,5 @@
-use super::{App, Job, UpdateOptions};
-use crate::{backup, config, download, layout, pack, updater};
+use super::{App, UpdateOptions};
+use crate::{backup, config, layout, pack, updater};
 use eframe::egui;
 
 impl App {
@@ -44,9 +44,7 @@ impl App {
         };
         let tag = installed.map(|v| v.to_string());
         let keep = self.state.backups_to_keep.unwrap_or(backup::DEFAULT_KEEP);
-        let shared = download::Shared::default();
-        let worker = shared.clone();
-        let handle = std::thread::spawn(move || {
+        self.start_job(move |worker| {
             // The reference download doesn't touch the pack, so it runs alongside the backup.
             let pristine = match (opts.save_layout, installed_release) {
                 (true, Some(release)) => {
@@ -58,7 +56,7 @@ impl App {
                 _ => None,
             };
             if opts.backup {
-                backup::create(&dir, tag.as_deref(), keep, &worker)?;
+                backup::create(&dir, tag.as_deref(), keep, worker)?;
             }
             if let Some(h) = pristine {
                 let pristine = h
@@ -66,15 +64,14 @@ impl App {
                     .map_err(|_| anyhow::anyhow!("layout download panicked"))??;
                 layout::save_changes(&dir, &pristine)?;
             }
-            updater::execute(plan, &dir, &worker)?;
+            updater::execute(plan, &dir, worker)?;
             match &cfg {
                 // Also re-applies any saved screen layout.
-                Some(cfg) => config::apply(cfg, &dir, &worker)?,
+                Some(cfg) => config::apply(cfg, &dir, worker)?,
                 None => {}
             }
             Ok(())
         });
-        self.job = Some(Job { shared, handle });
         self.status.clear();
     }
 

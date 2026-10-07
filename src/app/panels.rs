@@ -1,5 +1,5 @@
-use super::{App, Health, INSTALL_STEPS, Job, STEPS, Step, config_ui};
-use crate::{download, selfupdate};
+use super::{App, Health, INSTALL_STEPS, STEPS, Step, config_ui};
+use crate::selfupdate;
 use eframe::egui;
 
 const SIDEBAR_WIDTH: f32 = 232.0;
@@ -203,10 +203,7 @@ impl App {
                     .add_enabled(!busy, egui::Button::new("Update and restart"))
                     .clicked()
                 {
-                    let shared = download::Shared::default();
-                    let worker = shared.clone();
-                    let handle = std::thread::spawn(move || selfupdate::apply(&release, &worker));
-                    self.job = Some(Job { shared, handle });
+                    self.start_job(move |worker| selfupdate::apply(&release, worker));
                     self.status.clear();
                 }
             });

@@ -9,7 +9,9 @@ mod layout;
 mod manifest;
 mod pack;
 mod selfupdate;
+mod staging;
 mod state;
+mod store;
 mod updater;
 mod vcredist;
 

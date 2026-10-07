@@ -1,6 +1,5 @@
 use super::App;
-use super::Job;
-use crate::{backup, download, state::State};
+use crate::{backup, state::State};
 use eframe::egui;
 
 impl App {
@@ -114,10 +113,7 @@ impl App {
                 self.status = "Pack location unknown.".into();
                 return;
             };
-            let shared = download::Shared::default();
-            let worker = shared.clone();
-            let handle = std::thread::spawn(move || backup::restore(&b, &dir, &worker));
-            self.job = Some(Job { shared, handle });
+            self.start_job(move |worker| backup::restore(&b, &dir, worker));
             self.status.clear();
         }
     }

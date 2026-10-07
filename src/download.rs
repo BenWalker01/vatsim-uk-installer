@@ -3,8 +3,11 @@
 use sha2::{Digest, Sha256};
 use std::{
     io::{Read, Write},
-    path::Path,
-    sync::{Arc, Mutex},
+    path::{Path, PathBuf},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
@@ -36,6 +39,38 @@ pub fn agent() -> ureq::Agent {
         .http_status_as_error(false)
         .build()
         .into()
+}
+
+/// A downloaded file in the temp directory, deleted when dropped.
+pub struct TempDownload(PathBuf);
+
+impl TempDownload {
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDownload {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// Download `url` to a uniquely named temp file called `<prefix>-<unique>.<extension>`.
+pub fn download_to_temp(
+    url: &str,
+    sha256: &str,
+    prefix: &str,
+    extension: &str,
+    shared: &Shared,
+) -> anyhow::Result<TempDownload> {
+    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let path =
+        std::env::temp_dir().join(format!("{prefix}-{}-{id}.{extension}", std::process::id()));
+    let temp = TempDownload(path);
+    download(url, sha256, temp.path(), shared)?;
+    Ok(temp)
 }
 
 /// Download `url` to `dest`, verifying `sha256` (hex, optionally `sha256:`-prefixed).

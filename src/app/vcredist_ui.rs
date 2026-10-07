@@ -1,6 +1,5 @@
 use super::App;
-use super::Job;
-use crate::{download, vcredist};
+use crate::vcredist;
 use eframe::egui;
 
 impl App {
@@ -20,10 +19,7 @@ impl App {
                 self.status = match self.manifest.as_ref() {
                     Some(m) => {
                         let url = m.vcredist_url.clone();
-                        let shared = download::Shared::default();
-                        let worker = shared.clone();
-                        let handle = std::thread::spawn(move || vcredist::install(&url, &worker));
-                        self.job = Some(Job { shared, handle });
+                        self.start_job(move |worker| vcredist::install(&url, worker));
                         String::new()
                     }
                     None => "Manifest unavailable".into(),
