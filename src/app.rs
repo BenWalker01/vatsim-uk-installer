@@ -1078,6 +1078,9 @@ impl App {
         ui.add_space(6.0);
         self.progress_ui(ui);
         let idle = self.job.is_none();
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(8.0);
         ui.horizontal(|ui| {
             let button =
                 egui::Button::new(egui::RichText::new("Save and apply").size(18.0).strong())
