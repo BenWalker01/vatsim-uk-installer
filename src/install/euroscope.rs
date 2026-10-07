@@ -2,7 +2,7 @@
 
 use std::{path::PathBuf, process::Command};
 
-use crate::download::{self, Shared};
+use crate::common::download::{self, Shared};
 
 // SHA-256 of EuroScopeSetup.3.2.3.2.msi; must be updated with the required version.
 const EXPECTED_SHA256: &str = "de11bf2f62e47d8bda7e6c54f49f24fd96e46de37b0d2381e6020623c48cc7f1";

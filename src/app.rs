@@ -10,13 +10,10 @@ mod update_ui;
 mod vcredist_ui;
 
 use crate::{
-    backup,
+    common::{download, state::State},
     config::{self, Config},
-    download, euroscope,
-    manifest::Manifest,
-    pack, selfupdate,
-    state::State,
-    vcredist,
+    install::{euroscope, selfupdate, vcredist},
+    pack::{self, backup, manifest::Manifest},
 };
 
 use eframe::egui;

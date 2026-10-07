@@ -1,19 +1,10 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod app;
-mod backup;
+mod common;
 mod config;
-mod download;
-mod euroscope;
-mod layout;
-mod manifest;
+mod install;
 mod pack;
-mod selfupdate;
-mod staging;
-mod state;
-mod store;
-mod updater;
-mod vcredist;
 
 fn app_icon() -> eframe::egui::IconData {
     let icon = image::load_from_memory_with_format(
@@ -31,7 +22,7 @@ fn app_icon() -> eframe::egui::IconData {
 }
 
 fn main() -> eframe::Result {
-    selfupdate::cleanup();
+    install::selfupdate::cleanup();
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([860.0, 760.0])

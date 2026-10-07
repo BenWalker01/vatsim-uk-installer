@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct State {
-    pub pack_version: Option<crate::manifest::PackVersion>,
+    pub pack_version: Option<crate::pack::manifest::PackVersion>,
     pub pack_dir: Option<PathBuf>,
     pub euroscope_path: Option<PathBuf>,
     #[serde(default)]
@@ -45,11 +45,11 @@ const STATE_FILE: &str = "state.json";
 
 impl State {
     pub fn load() -> State {
-        crate::store::load_json(STATE_FILE).unwrap_or_default()
+        crate::common::store::load_json(STATE_FILE).unwrap_or_default()
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
-        crate::store::save_json(STATE_FILE, self)
+        crate::common::store::save_json(STATE_FILE, self)
     }
 }
 

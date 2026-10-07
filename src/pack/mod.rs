@@ -1,10 +1,13 @@
 //! Controller pack install and patching.
 
-use crate::{
-    download::{self, Shared},
-    manifest::{Asset, PackRelease, PackVersion},
-    staging,
-};
+pub mod backup;
+pub mod layout;
+pub mod manifest;
+pub mod staging;
+pub mod updater;
+
+use crate::common::download::{self, Shared};
+use manifest::{Asset, PackRelease, PackVersion};
 use std::path::{Path, PathBuf};
 
 /// Default pack location: `%APPDATA%\EuroScope\UK`.
@@ -133,7 +136,7 @@ fn download_and_extract(
 pub fn fetch_pristine_asrs(
     release: &PackRelease,
     shared: &Shared,
-) -> anyhow::Result<crate::layout::Baseline> {
+) -> anyhow::Result<crate::pack::layout::Baseline> {
     download::set_message(
         shared,
         format!("Downloading pack {} for comparison", release.version),
@@ -148,10 +151,10 @@ pub fn fetch_pristine_asrs(
     result
 }
 
-fn read_asrs_from_zip(zip_path: &Path) -> anyhow::Result<crate::layout::Baseline> {
+fn read_asrs_from_zip(zip_path: &Path) -> anyhow::Result<crate::pack::layout::Baseline> {
     use std::io::Read;
     let mut archive = zip::ZipArchive::new(std::fs::File::open(zip_path)?)?;
-    let mut out = crate::layout::Baseline::new();
+    let mut out = crate::pack::layout::Baseline::new();
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
         let Some(full) = entry.enclosed_name() else {
@@ -170,7 +173,10 @@ fn read_asrs_from_zip(zip_path: &Path) -> anyhow::Result<crate::layout::Baseline
         let mut bytes = Vec::new();
         entry.read_to_end(&mut bytes)?;
         let key = rel.to_string_lossy().replace('\\', "/");
-        out.insert(key, crate::layout::norm(&String::from_utf8_lossy(&bytes)));
+        out.insert(
+            key,
+            crate::pack::layout::norm(&String::from_utf8_lossy(&bytes)),
+        );
     }
     Ok(out)
 }
@@ -211,7 +217,7 @@ mod tests {
     #[test]
     #[ignore = "downloads ~16MB from GitHub"]
     fn downloads_live_patch() {
-        let m = crate::manifest::Manifest::fetch().unwrap();
+        let m = crate::pack::manifest::Manifest::fetch().unwrap();
         let dest = std::env::temp_dir().join("vuk-live-patch");
         let _ = std::fs::remove_dir_all(&dest);
         apply_changes_batch(

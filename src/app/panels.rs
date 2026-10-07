@@ -1,5 +1,5 @@
 use super::{App, Health, INSTALL_STEPS, STEPS, Step, config_ui};
-use crate::selfupdate;
+use crate::install::selfupdate;
 use eframe::egui;
 
 const SIDEBAR_WIDTH: f32 = 232.0;

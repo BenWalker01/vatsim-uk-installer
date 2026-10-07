@@ -2,7 +2,7 @@ use super::display::*;
 use super::profile::*;
 use super::text_files::*;
 use super::*;
-use crate::download;
+use crate::common::download;
 
 /// Patch the pack in `root` according to `cfg`. Per-file failures are collected, not fatal.
 pub fn apply(cfg: &Config, root: &Path, shared: &download::Shared) -> anyhow::Result<()> {
@@ -91,7 +91,7 @@ pub fn apply(cfg: &Config, root: &Path, shared: &download::Shared) -> anyhow::Re
 
     // Last, so saved screen positions win over anything the passes above touched.
     step();
-    if let Err(e) = crate::layout::apply(root) {
+    if let Err(e) = crate::pack::layout::apply(root) {
         errors.push(format!("saved screen layout: {e}"));
     }
 

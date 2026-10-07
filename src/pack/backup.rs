@@ -2,8 +2,8 @@
 //! File names are `UK_<pack tag>_<unix seconds>.zip`.
 
 use crate::{
-    download::{self, Shared},
-    staging,
+    common::download::{self, Shared},
+    pack::staging,
 };
 use std::path::{Path, PathBuf};
 
@@ -28,7 +28,7 @@ impl Backup {
 }
 
 pub fn dir() -> Option<PathBuf> {
-    crate::store::dir().map(|d| d.join("backups"))
+    crate::common::store::dir().map(|d| d.join("backups"))
 }
 
 fn now_secs() -> u64 {

@@ -154,7 +154,7 @@ impl Config {
 
 /// Local storage: `%APPDATA%\vatsim-uk-installer\controller_pack_config.json`.
 pub fn local_path() -> Option<PathBuf> {
-    crate::store::path(CONFIG_FILE)
+    crate::common::store::path(CONFIG_FILE)
 }
 
 fn read(path: &Path) -> Option<Config> {
@@ -177,7 +177,7 @@ pub fn exists(pack_dir: Option<&Path>) -> bool {
 }
 
 pub fn save(cfg: &Config) -> anyhow::Result<()> {
-    crate::store::save_json(CONFIG_FILE, cfg)
+    crate::common::store::save_json(CONFIG_FILE, cfg)
 }
 
 #[cfg(test)]

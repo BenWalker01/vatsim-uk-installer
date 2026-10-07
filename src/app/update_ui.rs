@@ -1,5 +1,8 @@
 use super::{App, UpdateOptions};
-use crate::{backup, config, layout, pack, updater};
+use crate::{
+    config,
+    pack::{self, backup, layout, updater},
+};
 use eframe::egui;
 
 impl App {

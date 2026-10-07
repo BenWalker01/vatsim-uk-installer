@@ -7,7 +7,7 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
-use crate::download::{self, Shared};
+use crate::common::download::{self, Shared};
 
 pub const DOWNLOADS_URL: &str = "https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170#latest-microsoft-visual-c-redistributable-version";
 // SHA-256 of the x86 redistributable served by Microsoft's latest-version URL on 2026-10-06.

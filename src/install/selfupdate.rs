@@ -7,7 +7,7 @@ use std::{
 
 use serde::Deserialize;
 
-use crate::download::{self, Shared};
+use crate::common::download::{self, Shared};
 
 const LATEST_URL: &str =
     "https://api.github.com/repos/BenWalker01/vatsim-uk-installer/releases/latest";

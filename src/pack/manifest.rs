@@ -127,7 +127,7 @@ fn fetch_releases_json() -> anyhow::Result<String> {
         .as_ref()
         .and_then(|(_, e)| std::fs::read_to_string(e).ok());
 
-    let mut req = crate::download::agent()
+    let mut req = crate::common::download::agent()
         .get(RELEASES_URL)
         .header("Accept", "application/vnd.github+json");
     if let (Some(etag), Some(_)) = (&etag, &cached) {

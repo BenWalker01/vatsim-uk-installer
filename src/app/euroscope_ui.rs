@@ -1,5 +1,5 @@
 use super::App;
-use crate::euroscope;
+use crate::install::euroscope;
 use eframe::egui;
 
 impl App {

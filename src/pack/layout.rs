@@ -20,11 +20,11 @@ pub struct FileChange {
 pub type Layout = BTreeMap<String, FileChange>;
 
 pub fn load_layout() -> Layout {
-    crate::store::load_json(LAYOUT_FILE).unwrap_or_default()
+    crate::common::store::load_json(LAYOUT_FILE).unwrap_or_default()
 }
 
 pub fn clear_layout() -> anyhow::Result<()> {
-    if let Some(p) = crate::store::path(LAYOUT_FILE) {
+    if let Some(p) = crate::common::store::path(LAYOUT_FILE) {
         if p.exists() {
             std::fs::remove_file(p)?;
         }
@@ -102,7 +102,7 @@ pub fn save_changes(pack: &Path, pristine: &Baseline) -> anyhow::Result<usize> {
     );
     let changes = diff(pristine, &read_asrs(pack));
     let count = changes.len();
-    crate::store::save_json(LAYOUT_FILE, &changes)?;
+    crate::common::store::save_json(LAYOUT_FILE, &changes)?;
     Ok(count)
 }
 

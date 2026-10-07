@@ -1,7 +1,7 @@
 use super::{App, ConfigTab};
 use crate::{
     config::{self, Config},
-    layout, pack,
+    pack::{self, layout},
 };
 use eframe::egui;
 

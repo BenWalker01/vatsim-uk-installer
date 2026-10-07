@@ -1,6 +1,6 @@
 //! Sequential update planning for the controller pack.
 
-use crate::manifest::{Manifest, PackRelease, PackVersion};
+use crate::pack::manifest::{Manifest, PackRelease, PackVersion};
 
 pub enum Plan {
     UpToDate,
@@ -39,9 +39,9 @@ pub fn plan(manifest: &Manifest, installed: Option<PackVersion>) -> Option<Plan>
 pub fn execute(
     plan: Plan,
     dir: &std::path::Path,
-    shared: &crate::download::Shared,
+    shared: &crate::common::download::Shared,
 ) -> anyhow::Result<()> {
-    let mut state = crate::state::State::load();
+    let mut state = crate::common::state::State::load();
     state.pack_dir = Some(dir.to_path_buf());
     match plan {
         Plan::UpToDate => {}
@@ -64,7 +64,7 @@ pub fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::{Asset, EuroScopeInfo};
+    use crate::pack::manifest::{Asset, EuroScopeInfo};
 
     fn rel(tag: &str) -> PackRelease {
         let a = Asset {

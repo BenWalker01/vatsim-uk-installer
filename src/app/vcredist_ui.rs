@@ -1,5 +1,5 @@
 use super::App;
-use crate::vcredist;
+use crate::install::vcredist;
 use eframe::egui;
 
 impl App {
