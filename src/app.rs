@@ -1,4 +1,4 @@
-//! UI: a sidebar of wizard steps plus a content panel.
+//! UI: a status-aware sidebar (EuroScope, VC++, pack, configuration, backups) plus a content panel.
 
 use crate::{
     backup,
@@ -13,26 +13,30 @@ use eframe::egui;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Step {
-    Welcome,
     EuroScope,
     VcRedist,
     ControllerPack,
-    Updates,
     Configure,
     Backups,
-    Done,
 }
 
 const STEPS: &[(Step, &str)] = &[
-    (Step::Welcome, "Welcome"),
     (Step::EuroScope, "EuroScope"),
     (Step::VcRedist, "VC++ Runtime"),
     (Step::ControllerPack, "Controller Pack"),
-    (Step::Updates, "Updates"),
-    (Step::Configure, "Settings"),
+    (Step::Configure, "Configuration"),
     (Step::Backups, "Backups"),
-    (Step::Done, "Finish"),
 ];
+
+/// Install steps that must be satisfied, in the order they are walked through.
+const INSTALL_STEPS: [Step; 3] = [Step::EuroScope, Step::VcRedist, Step::ControllerPack];
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Health {
+    Ok,
+    Outdated,
+    Missing,
+}
 
 #[derive(Clone, Copy, Default)]
 struct UpdateOptions {
@@ -42,9 +46,7 @@ struct UpdateOptions {
 }
 
 pub struct App {
-    /// Guided mode: sidebar navigation is locked until setup has been completed.
-    wizard: bool,
-    confirm_update: Option<UpdateOptions>,
+    update_opts: UpdateOptions,
     backups: Vec<backup::Backup>,
     backups_dirty: bool,
     selected_backup: Option<(std::path::PathBuf, Result<Vec<String>, String>)>,
@@ -90,68 +92,74 @@ struct Job {
 impl App {
     fn step_description(&self) -> &'static str {
         match self.step {
-            Step::Welcome => "Installer for the UK Controller Pack",
-            Step::EuroScope => {
-                "Install Euroscope version 3.2.3.2, or check what you already have installed"
-            }
+            Step::EuroScope => "The UK pack requires EuroScope version 3.2.3.2 exactly",
             Step::VcRedist => "The UK Controller Plugin needs this runtime",
-            Step::ControllerPack => "Install a fresh controller pack",
-            Step::Updates => "Update your pack to the latest version",
-            Step::Configure => "Set or load settings",
+            Step::ControllerPack => "Install or update the UK controller pack",
+            Step::Configure => "Your settings are saved and re-applied after every pack update",
             Step::Backups => "Restore a saved copy of your controller pack",
-            Step::Done => "Happy Controlling!",
         }
     }
 
-    fn setup_status(&self, step: Step, dark_mode: bool) -> (&'static str, egui::Color32) {
-        let success = if dark_mode {
-            egui::Color32::from_rgb(110, 190, 145)
-        } else {
-            egui::Color32::from_rgb(32, 126, 78)
-        };
-        let muted = if dark_mode {
-            egui::Color32::from_rgb(158, 165, 174)
-        } else {
-            egui::Color32::from_rgb(99, 108, 119)
-        };
-        let warning = if dark_mode {
-            egui::Color32::from_rgb(230, 180, 112)
-        } else {
-            egui::Color32::from_rgb(151, 91, 20)
-        };
-        if step == Step::ControllerPack {
-            return match (
+    fn health(&self, step: Step) -> Health {
+        match step {
+            Step::EuroScope => match (&self.euroscope, self.euroscope_ok()) {
+                (None, _) => Health::Missing,
+                (Some(_), true) => Health::Ok,
+                (Some(_), false) => Health::Outdated,
+            },
+            Step::VcRedist => {
+                if self.vcredist {
+                    Health::Ok
+                } else {
+                    Health::Missing
+                }
+            }
+            Step::ControllerPack => match (
                 self.state.pack_version,
                 self.manifest.as_ref().and_then(Manifest::latest),
             ) {
-                (None, _) => ("Missing", muted),
-                (Some(installed), Some(latest)) if installed == latest.version => {
-                    ("Ready", success)
-                }
-                (Some(_), _) => ("Outdated", warning),
-            };
+                (None, _) => Health::Missing,
+                (Some(installed), Some(latest)) if installed != latest.version => Health::Outdated,
+                (Some(_), _) => Health::Ok,
+            },
+            Step::Configure | Step::Backups => Health::Ok,
         }
+    }
 
-        let ready = match step {
-            Step::EuroScope => self.euroscope_ok(),
-            Step::VcRedist => self.vcredist,
-            _ => false,
-        };
-        if ready {
-            ("Ready", success)
-        } else {
-            ("Not set up", muted)
+    fn status_color(health: Health, dark_mode: bool) -> egui::Color32 {
+        match (health, dark_mode) {
+            (Health::Ok, true) => egui::Color32::from_rgb(110, 190, 145),
+            (Health::Ok, false) => egui::Color32::from_rgb(32, 126, 78),
+            (Health::Outdated, true) => egui::Color32::from_rgb(240, 200, 70),
+            (Health::Outdated, false) => egui::Color32::from_rgb(176, 124, 0),
+            (Health::Missing, true) => egui::Color32::from_rgb(158, 165, 174),
+            (Health::Missing, false) => egui::Color32::from_rgb(99, 108, 119),
         }
+    }
+
+    /// First install step that is missing or outdated, if any.
+    fn first_pending(&self) -> Option<Step> {
+        INSTALL_STEPS
+            .into_iter()
+            .find(|s| self.health(*s) != Health::Ok)
+    }
+
+    /// Land on the first problem page, or on Configuration when everything is current.
+    fn goto_pending_or_configure(&mut self) {
+        self.step = self.first_pending().unwrap_or(Step::Configure);
     }
 
     pub fn new(ctx: egui::Context) -> Self {
         let mut app = App {
-            wizard: true,
-            confirm_update: None,
+            update_opts: UpdateOptions {
+                backup: true,
+                save_layout: true,
+                apply_config: false,
+            },
             backups: Vec::new(),
             backups_dirty: true,
             selected_backup: None,
-            step: Step::Welcome,
+            step: Step::EuroScope,
             state: State::load(),
             applied_theme: None,
             manifest: None,
@@ -170,7 +178,7 @@ impl App {
         app.refresh();
         app.reload_state();
         app.config = config::load(app.pack_dir().as_deref());
-        app.wizard = !app.setup_complete();
+        app.goto_pending_or_configure();
         ctx.set_theme(app.state.theme.egui());
         app.apply_style(&ctx);
         app
@@ -276,22 +284,9 @@ impl App {
         }
     }
 
-    /// Steps shown in the sidebar; the Backups page only appears once setup is complete.
-    fn steps(&self) -> Vec<(Step, &'static str)> {
-        STEPS
-            .iter()
-            .copied()
-            .filter(|(s, _)| !(self.wizard && *s == Step::Backups))
-            .collect()
-    }
-
+    /// Move on to the next install step needing attention, else Configuration.
     fn next(&mut self) {
-        let steps = self.steps();
-        if let Some(i) = steps.iter().position(|(s, _)| *s == self.step) {
-            if let Some((s, _)) = steps.get(i + 1) {
-                self.step = *s;
-            }
-        }
+        self.goto_pending_or_configure();
     }
 
     fn euroscope_ui(&mut self, ui: &mut egui::Ui) {
@@ -449,11 +444,6 @@ impl App {
         self.state.pack_dir.clone().or_else(pack::default_dir)
     }
 
-    /// Whether everything the wizard sets up is in place.
-    fn setup_complete(&self) -> bool {
-        self.euroscope_ok() && self.vcredist && self.state.pack_version.is_some()
-    }
-
     fn euroscope_ok(&self) -> bool {
         let Some(d) = &self.euroscope else {
             return false;
@@ -464,16 +454,6 @@ impl App {
                 .as_deref()
                 .is_some_and(|v| euroscope::is_required_version(v, &m.euroscope.required_version)),
             None => true,
-        }
-    }
-
-    /// Whether the current wizard step is satisfied so the user may continue.
-    fn step_satisfied(&self) -> bool {
-        match self.step {
-            Step::EuroScope => self.euroscope_ok(),
-            Step::VcRedist => self.vcredist,
-            Step::ControllerPack => self.state.pack_version.is_some(),
-            _ => true,
         }
     }
 
@@ -560,7 +540,9 @@ impl App {
         let Some(job) = &self.job else { return };
         if job.handle.is_finished() {
             let job = self.job.take().unwrap();
-            self.status = match job.handle.join() {
+            let result = job.handle.join();
+            let succeeded = matches!(result, Ok(Ok(())));
+            self.status = match result {
                 Ok(Ok(())) => "Done".into(),
                 Ok(Err(e)) => format!("Failed: {e}"),
                 Err(_) => "Worker thread panicked".into(),
@@ -569,6 +551,9 @@ impl App {
             self.backups_dirty = true;
             self.euroscope = euroscope::detect();
             self.vcredist = vcredist::is_installed();
+            if succeeded && INSTALL_STEPS.contains(&self.step) {
+                self.goto_pending_or_configure();
+            }
         } else {
             ui.ctx().request_repaint();
         }
@@ -598,15 +583,8 @@ impl App {
         if let Some(dir) = self.pack_dir() {
             ui.label(format!("Location: {}", dir.display()));
         }
+        self.updates_ui(ui);
         self.progress_ui(ui);
-        let idle = self.job.is_none();
-        if self.state.pack_version.is_none()
-            && ui
-                .add_enabled(idle, egui::Button::new("Install controller pack"))
-                .clicked()
-        {
-            self.start_update(UpdateOptions::default());
-        }
     }
 
     fn updates_ui(&mut self, ui: &mut egui::Ui) {
@@ -618,6 +596,18 @@ impl App {
         let plan = updater::plan(m, self.state.pack_version);
         let mut start = false;
         let idle = self.job.is_none();
+        let existing = self.state.pack_version.is_some();
+        let opts = &mut self.update_opts;
+        let mut options = |ui: &mut egui::Ui| {
+            if existing {
+                ui.checkbox(&mut opts.backup, "Back up my existing pack first");
+                ui.checkbox(
+                    &mut opts.save_layout,
+                    "Keep the position of my items on screen",
+                );
+                ui.weak("Your saved settings are re-applied automatically.");
+            }
+        };
         match &plan {
             None => {
                 ui.label("No releases found.");
@@ -630,52 +620,24 @@ impl App {
                 for r in p {
                     ui.label(format!("  {}", r.version));
                 }
+                options(ui);
                 start = ui.add_enabled(idle, egui::Button::new("Update")).clicked();
             }
             Some(updater::Plan::Reinstall(r)) => {
                 ui.label(format!("Full install of {}.", r.version));
+                options(ui);
                 start = ui.add_enabled(idle, egui::Button::new("Install")).clicked();
             }
         }
-        self.progress_ui(ui);
         if start {
-            if self.state.pack_version.is_some() {
-                self.confirm_update = Some(UpdateOptions {
-                    backup: true,
-                    save_layout: true,
-                    apply_config: config::exists(self.pack_dir().as_deref()),
-                });
-            } else {
-                self.start_update(UpdateOptions::default());
+            let mut opts = UpdateOptions::default();
+            if existing {
+                opts = self.update_opts;
+                let dir = self.pack_dir();
+                opts.apply_config = config::exists(dir.as_deref())
+                    && config::load(dir.as_deref()).validate().is_none();
             }
-        }
-        if let Some(mut opts) = self.confirm_update {
-            ui.separator();
-            ui.label("Before updating your pack:");
-            ui.checkbox(&mut opts.backup, "Back up my existing pack first");
-            ui.checkbox(
-                &mut opts.save_layout,
-                "Save the position of my items on screen and re-apply them after updating",
-            );
-            ui.checkbox(
-                &mut opts.apply_config,
-                "Re-apply my previous settings (name, tags, colours, etc.) after updating",
-            );
-            let (mut go, mut cancel) = (false, false);
-            ui.horizontal(|ui| {
-                go = ui
-                    .add_enabled(self.job.is_none(), egui::Button::new("Continue"))
-                    .clicked();
-                cancel = ui.button("Cancel").clicked();
-            });
-            if go {
-                self.confirm_update = None;
-                self.start_update(opts);
-            } else if cancel {
-                self.confirm_update = None;
-            } else {
-                self.confirm_update = Some(opts);
-            }
+            self.start_update(opts);
         }
     }
 
@@ -1112,58 +1074,42 @@ impl eframe::App for App {
                 );
                 ui.add_space(18.0);
                 ui.label(
-                    egui::RichText::new(if self.wizard {
-                        "SETUP"
-                    } else {
-                        "YOUR INSTALLATION"
-                    })
-                    .small()
-                    .strong()
-                    .color(ui.visuals().weak_text_color()),
+                    egui::RichText::new("YOUR INSTALLATION")
+                        .small()
+                        .strong()
+                        .color(ui.visuals().weak_text_color()),
                 );
                 ui.add_space(8.0);
-                let steps = self.steps();
-                let current = steps.iter().position(|(s, _)| *s == self.step).unwrap_or(0);
-                for (i, (s, name)) in steps.iter().enumerate() {
+                let dark = ui.visuals().dark_mode;
+                for (s, name) in STEPS {
                     let active = self.step == *s;
-                    let completed = self.wizard && i < current;
-                    let text = if completed {
-                        egui::RichText::new(format!("✓  {name}")).color(if ui.visuals().dark_mode {
-                            egui::Color32::from_rgb(110, 190, 145)
-                        } else {
-                            egui::Color32::from_rgb(32, 126, 78)
-                        })
-                    } else if active {
-                        egui::RichText::new(format!("{:02}  {name}", i + 1))
-                            .color(ui.visuals().selection.stroke.color)
-                            .strong()
-                    } else {
-                        egui::RichText::new(format!("{:02}  {name}", i + 1))
-                            .color(ui.visuals().text_color())
+                    let health = self.health(*s);
+                    let (marker, color) = match (*s, health) {
+                        (Step::Configure | Step::Backups, _) => ("", ui.visuals().text_color()),
+                        (_, Health::Ok) => ("✔  ", Self::status_color(health, dark)),
+                        (_, Health::Outdated) => ("!  ", Self::status_color(health, dark)),
+                        (_, Health::Missing) => ("•  ", Self::status_color(health, dark)),
                     };
-                    if self.wizard {
-                        egui::Frame::new()
-                            .fill(if active {
-                                ui.visuals().selection.bg_fill
-                            } else {
-                                egui::Color32::TRANSPARENT
-                            })
-                            .corner_radius(egui::CornerRadius::same(2))
-                            .inner_margin(egui::Margin::symmetric(8, 5))
-                            .show(ui, |ui| {
-                                ui.set_width(ui.available_width());
-                                ui.add_sized(
-                                    [ui.available_width(), 24.0],
-                                    egui::Label::new(text).truncate(),
-                                );
-                            });
-                    } else if ui
+                    let mut text = egui::RichText::new(format!("{marker}{name}")).color(color);
+                    if active || health == Health::Outdated {
+                        text = text.strong();
+                    }
+                    if ui
                         .add_enabled(!busy, egui::Button::selectable(active, text))
                         .clicked()
                     {
                         self.step = *s;
                         self.backups_dirty = true;
                     }
+                }
+                ui.add_space(8.0);
+                if ui
+                    .add_enabled(!busy, egui::Button::new("Check again"))
+                    .clicked()
+                {
+                    self.refresh();
+                    self.reload_state();
+                    self.goto_pending_or_configure();
                 }
                 ui.add_space(16.0);
                 ui.separator();
@@ -1201,41 +1147,11 @@ impl eframe::App for App {
                         }));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let ready = !busy && (!self.wizard || self.step_satisfied());
-                        if self.step != Step::Done
-                            && ui
-                                .add_enabled(
-                                    ready,
-                                    egui::Button::new(if self.wizard {
-                                        "Continue"
-                                    } else {
-                                        "Next"
-                                    }),
-                                )
-                                .clicked()
+                        if INSTALL_STEPS.contains(&self.step)
+                            && self.health(self.step) == Health::Ok
+                            && ui.add_enabled(!busy, egui::Button::new("Continue")).clicked()
                         {
                             self.next();
-                        }
-                        if self.wizard
-                            && self.step != Step::Welcome
-                            && ui.add_enabled(!busy, egui::Button::new("Back")).clicked()
-                        {
-                            let steps = self.steps();
-                            if let Some(i) = steps.iter().position(|(s, _)| *s == self.step) {
-                                if let Some((previous, _)) =
-                                    i.checked_sub(1).and_then(|n| steps.get(n))
-                                {
-                                    self.step = *previous;
-                                }
-                            }
-                        }
-                        if self.wizard
-                            && self.step == Step::Done
-                            && ui
-                                .add_enabled(!busy, egui::Button::new("Finish setup"))
-                                .clicked()
-                        {
-                            self.wizard = false;
                         }
                     });
                 });
@@ -1248,56 +1164,28 @@ impl eframe::App for App {
                     .inner_margin(egui::Margin::same(24)),
             )
             .show(ui, |ui| {
-            if self.wizard {
-                let steps = self.steps();
-                let current = steps.iter().position(|(s, _)| *s == self.step).unwrap_or(0);
-                ui.label(egui::RichText::new(format!("STEP {} OF {}", current + 1, steps.len()))
-                    .small().strong().color(ui.visuals().selection.stroke.color));
-            }
             ui.heading(match self.step {
-                Step::Welcome => "Welcome",
                 Step::EuroScope => "EuroScope",
                 Step::VcRedist => "Microsoft Visual C++",
                 Step::ControllerPack => "UK Controller Pack",
-                Step::Updates => "Updates",
-                Step::Configure => "Your settings",
+                Step::Configure => "Configuration",
                 Step::Backups => "Backups",
-                Step::Done => "You're all set",
             });
             ui.label(egui::RichText::new(self.step_description())
                 .color(ui.visuals().weak_text_color()));
+            if let Some(e) = &self.manifest_error {
+                ui.colored_label(ui.visuals().warn_fg_color, format!("Could not check for updates: {e}"));
+            }
+            if self.step == Step::Configure && self.first_pending().is_none() {
+                ui.colored_label(
+                    Self::status_color(Health::Ok, ui.visuals().dark_mode),
+                    "✔ EuroScope, VC++ and the controller pack are all up to date",
+                );
+            }
             ui.add_space(16.0);
             egui::Frame::new()
                 .show(ui, |ui| {
             match self.step {
-                Step::Welcome => {
-                    ui.heading("A simpler way to get set up");
-                    ui.label("This installer checks the essentials, installs anything missing and keeps your UK controller pack up to date.");
-                    ui.add_space(16.0);
-                    ui.label(egui::RichText::new("BEFORE YOU START").small().strong()
-                        .color(ui.visuals().weak_text_color()));
-                    ui.add_space(6.0);
-                    for (step, name) in [
-                        (Step::EuroScope, "EuroScope"),
-                        (Step::VcRedist, "Visual C++ runtime"),
-                        (Step::ControllerPack, "UK controller pack"),
-                    ] {
-                        let (status, color) = self.setup_status(step, ui.visuals().dark_mode);
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("•").color(color).strong());
-                            ui.label(name);
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.label(egui::RichText::new(status).small().color(color));
-                            });
-                        });
-                    }
-                    ui.add_space(14.0);
-                    ui.weak("Your saved settings and screen layout can be kept when the pack is updated.");
-                    if let Some(e) = &self.manifest_error {
-                        ui.add_space(12.0);
-                        ui.colored_label(ui.visuals().warn_fg_color, format!("Could not check for pack updates: {e}"));
-                    }
-                }
                 Step::EuroScope => {
                     self.euroscope_ui(ui);
                 }
@@ -1307,19 +1195,11 @@ impl eframe::App for App {
                 Step::ControllerPack => {
                     self.pack_ui(ui);
                 }
-                Step::Updates => {
-                    self.updates_ui(ui);
-                }
                 Step::Configure => {
                     self.config_ui(ui);
                 }
                 Step::Backups => {
                     self.backups_ui(ui);
-                }
-                Step::Done => {
-                    ui.label("EuroScope and the UK controller pack are ready to use.");
-                    ui.add_space(8.0);
-                    ui.weak("You can return here any time to change your settings, check for updates or restore a backup.");
                 }
             }
             });
