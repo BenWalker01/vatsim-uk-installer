@@ -70,7 +70,11 @@ fn parse_release(body: &str, current: &str) -> anyhow::Result<Option<Release>> {
 }
 
 /// Returns the newest release if it is newer than this build and has a hashed exe asset.
+/// Debug builds skip the check unless `VATSIM_UK_SELFUPDATE` is set.
 pub fn check() -> anyhow::Result<Option<Release>> {
+    if cfg!(debug_assertions) && std::env::var_os("VATSIM_UK_SELFUPDATE").is_none() {
+        return Ok(None);
+    }
     let mut resp = download::agent()
         .get(LATEST_URL)
         .header("Accept", "application/vnd.github+json")
