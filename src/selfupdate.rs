@@ -121,7 +121,9 @@ pub fn apply(release: &Release, shared: &Shared) -> anyhow::Result<()> {
 /// Remove the previous exe left behind by a self-update. The old process may still be
 /// exiting when the new one starts, so retry briefly in the background.
 pub fn cleanup() {
-    let Ok(exe) = std::env::current_exe() else { return };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
     let old = sibling(&exe, ".old");
     if !old.exists() {
         return;
