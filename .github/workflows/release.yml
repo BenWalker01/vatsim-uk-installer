@@ -21,6 +21,14 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart('v')
+          (Get-Content Cargo.toml -Raw) -replace '(?m)^version = ".*"', "version = `"$v`"" | Set-Content Cargo.toml -NoNewline
+          (Get-Content Cargo.lock -Raw) -replace '(name = "vatsim-uk-installer"\r?\nversion = )".*"', "`$1`"$v`"" | Set-Content Cargo.lock -NoNewline
+
       - name: Build (release)
         run: cargo build --release --locked
 

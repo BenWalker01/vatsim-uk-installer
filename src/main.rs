@@ -8,6 +8,7 @@ mod euroscope;
 mod layout;
 mod manifest;
 mod pack;
+mod selfupdate;
 mod state;
 mod updater;
 mod vcredist;
@@ -28,6 +29,7 @@ fn app_icon() -> eframe::egui::IconData {
 }
 
 fn main() -> eframe::Result {
+    selfupdate::cleanup();
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([860.0, 760.0])

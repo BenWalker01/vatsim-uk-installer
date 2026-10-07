@@ -7,7 +7,7 @@ use crate::{
     manifest::Manifest,
     pack,
     state::{State, ThemePreference},
-    updater, vcredist,
+    selfupdate, updater, vcredist,
 };
 use eframe::egui;
 
@@ -56,6 +56,8 @@ pub struct App {
     applied_theme: Option<egui::Theme>,
     manifest: Option<Manifest>,
     manifest_error: Option<String>,
+    self_update_check: Option<std::thread::JoinHandle<anyhow::Result<Option<selfupdate::Release>>>>,
+    self_update: Option<selfupdate::Release>,
     euroscope: Option<euroscope::Detected>,
     vcredist: bool,
     rechecking: Option<(&'static str, std::time::Instant)>,
@@ -166,6 +168,8 @@ impl App {
             applied_theme: None,
             manifest: None,
             manifest_error: None,
+            self_update_check: Some(std::thread::spawn(selfupdate::check)),
+            self_update: None,
             euroscope: None,
             vcredist: false,
             rechecking: None,
@@ -1101,6 +1105,13 @@ impl eframe::App for App {
             self.apply_style(ui.ctx());
         }
         self.poll_job(ui);
+        if self.self_update_check.as_ref().is_some_and(|h| h.is_finished()) {
+            if let Ok(Ok(release)) = self.self_update_check.take().unwrap().join() {
+                self.self_update = release;
+            }
+        } else if self.self_update_check.is_some() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+        }
         let busy = self.job.is_some();
         if busy && ui.ctx().input(|i| i.viewport().close_requested()) {
             ui.ctx()
@@ -1228,6 +1239,30 @@ impl eframe::App for App {
             });
             ui.label(egui::RichText::new(self.step_description())
                 .color(ui.visuals().weak_text_color()));
+            if let Some(release) = self.self_update.clone() {
+                ui.horizontal(|ui| {
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        format!(
+                            "Installer update available: {} (you have {})",
+                            release.version,
+                            env!("CARGO_PKG_VERSION")
+                        ),
+                    );
+                    if ui
+                        .add_enabled(!busy, egui::Button::new("Update and restart"))
+                        .clicked()
+                    {
+                        let shared = download::Shared::default();
+                        let worker = shared.clone();
+                        let handle =
+                            std::thread::spawn(move || selfupdate::apply(&release, &worker));
+                        self.job = Some(Job { shared, handle });
+                        self.status.clear();
+                    }
+                });
+                self.progress_ui(ui);
+            }
             if let Some(e) = &self.manifest_error {
                 ui.colored_label(ui.visuals().warn_fg_color, format!("Could not check for updates: {e}"));
             }
