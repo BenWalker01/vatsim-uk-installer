@@ -97,6 +97,7 @@ impl ConfigTab {
 struct Job {
     shared: download::Shared,
     handle: std::thread::JoinHandle<anyhow::Result<()>>,
+    progress_in_banner: bool,
 }
 
 impl App {
@@ -104,10 +105,29 @@ impl App {
         &mut self,
         work: impl FnOnce(&download::Shared) -> anyhow::Result<()> + Send + 'static,
     ) {
+        self.start_job_with_progress_location(work, false);
+    }
+
+    fn start_self_update_job(
+        &mut self,
+        work: impl FnOnce(&download::Shared) -> anyhow::Result<()> + Send + 'static,
+    ) {
+        self.start_job_with_progress_location(work, true);
+    }
+
+    fn start_job_with_progress_location(
+        &mut self,
+        work: impl FnOnce(&download::Shared) -> anyhow::Result<()> + Send + 'static,
+        progress_in_banner: bool,
+    ) {
         let shared = download::Shared::default();
         let worker = shared.clone();
         let handle = std::thread::spawn(move || work(&worker));
-        self.job = Some(Job { shared, handle });
+        self.job = Some(Job {
+            shared,
+            handle,
+            progress_in_banner,
+        });
     }
 
     fn step_description(&self) -> &'static str {
@@ -266,8 +286,11 @@ impl App {
         }
     }
 
-    fn progress_ui(&self, ui: &mut egui::Ui) {
+    fn progress_ui(&self, ui: &mut egui::Ui, in_banner: bool) {
         if let Some(job) = &self.job {
+            if job.progress_in_banner != in_banner {
+                return;
+            }
             let r = job.shared.lock().unwrap().clone();
             ui.label(&r.message);
             match r.total {

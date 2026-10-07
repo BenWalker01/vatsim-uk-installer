@@ -88,7 +88,7 @@ impl App {
             ui.label(format!("Location: {}", dir.display()));
         }
         self.updates_ui(ui);
-        self.progress_ui(ui);
+        self.progress_ui(ui, false);
     }
 
     pub(super) fn updates_ui(&mut self, ui: &mut egui::Ui) {

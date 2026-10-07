@@ -107,7 +107,7 @@ impl App {
             }
         });
         ui.label("Restoring replaces your current pack folder.");
-        self.progress_ui(ui);
+        self.progress_ui(ui, false);
         if restore {
             let Some(dir) = self.pack_dir() else {
                 self.status = "Pack location unknown.".into();

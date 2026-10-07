@@ -54,7 +54,7 @@ impl App {
                 }
             }
         }
-        self.progress_ui(ui);
+        self.progress_ui(ui, false);
         let ok = self.euroscope_ok();
         if self.recheck_ui(ui, "euroscope", ok) {
             self.euroscope = euroscope::detect();

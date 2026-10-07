@@ -153,7 +153,7 @@ impl App {
                 }
             });
         ui.add_space(6.0);
-        self.progress_ui(ui);
+        self.progress_ui(ui, false);
         let idle = self.job.is_none();
         ui.add_space(8.0);
         ui.separator();

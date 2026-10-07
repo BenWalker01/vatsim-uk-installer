@@ -203,11 +203,11 @@ impl App {
                     .add_enabled(!busy, egui::Button::new("Update and restart"))
                     .clicked()
                 {
-                    self.start_job(move |worker| selfupdate::apply(&release, worker));
+                    self.start_self_update_job(move |worker| selfupdate::apply(&release, worker));
                     self.status.clear();
                 }
             });
-            self.progress_ui(ui);
+            self.progress_ui(ui, true);
         }
         if let Some(e) = &self.manifest_error {
             ui.colored_label(
