@@ -5,9 +5,9 @@ use crate::{
     config::{self, Config},
     download, euroscope, layout,
     manifest::Manifest,
-    pack,
+    pack, selfupdate,
     state::{State, ThemePreference},
-    selfupdate, updater, vcredist,
+    updater, vcredist,
 };
 use eframe::egui;
 
@@ -634,8 +634,8 @@ impl App {
     /// Modal asking the two questions that are easy to miss as tick boxes.
     fn update_prompt(&mut self, ui: &mut egui::Ui) {
         let dir = self.pack_dir();
-        let settings_ok = config::exists(dir.as_deref())
-            && config::load(dir.as_deref()).validate().is_none();
+        let settings_ok =
+            config::exists(dir.as_deref()) && config::load(dir.as_deref()).validate().is_none();
         let saved_layout = layout::load_layout().len();
         let mut opts = self.update_opts;
         let (mut go, mut cancel) = (false, false);
@@ -652,7 +652,12 @@ impl App {
         let modal = egui::Modal::new(egui::Id::new("update_prompt")).show(ui.ctx(), |ui| {
             ui.set_width(440.0);
             ui.heading("Before we update");
-            yes_no(ui, "Back up your current pack first?", &mut opts.backup, true);
+            yes_no(
+                ui,
+                "Back up your current pack first?",
+                &mut opts.backup,
+                true,
+            );
             if !settings_ok {
                 opts.apply_config = false;
             }
@@ -1105,12 +1110,17 @@ impl eframe::App for App {
             self.apply_style(ui.ctx());
         }
         self.poll_job(ui);
-        if self.self_update_check.as_ref().is_some_and(|h| h.is_finished()) {
+        if self
+            .self_update_check
+            .as_ref()
+            .is_some_and(|h| h.is_finished())
+        {
             if let Ok(Ok(release)) = self.self_update_check.take().unwrap().join() {
                 self.self_update = release;
             }
         } else if self.self_update_check.is_some() {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(250));
         }
         let busy = self.job.is_some();
         if busy && ui.ctx().input(|i| i.viewport().close_requested()) {
@@ -1215,7 +1225,9 @@ impl eframe::App for App {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if INSTALL_STEPS.contains(&self.step)
                             && self.health(self.step) == Health::Ok
-                            && ui.add_enabled(!busy, egui::Button::new("Continue")).clicked()
+                            && ui
+                                .add_enabled(!busy, egui::Button::new("Continue"))
+                                .clicked()
                         {
                             self.next();
                         }
@@ -1230,69 +1242,71 @@ impl eframe::App for App {
                     .inner_margin(egui::Margin::same(24)),
             )
             .show(ui, |ui| {
-            ui.heading(match self.step {
-                Step::EuroScope => "EuroScope",
-                Step::VcRedist => "Microsoft Visual C++",
-                Step::ControllerPack => "UK Controller Pack",
-                Step::Configure => "Configuration",
-                Step::Backups => "Backups",
-            });
-            ui.label(egui::RichText::new(self.step_description())
-                .color(ui.visuals().weak_text_color()));
-            if let Some(release) = self.self_update.clone() {
-                ui.horizontal(|ui| {
+                ui.heading(match self.step {
+                    Step::EuroScope => "EuroScope",
+                    Step::VcRedist => "Microsoft Visual C++",
+                    Step::ControllerPack => "UK Controller Pack",
+                    Step::Configure => "Configuration",
+                    Step::Backups => "Backups",
+                });
+                ui.label(
+                    egui::RichText::new(self.step_description())
+                        .color(ui.visuals().weak_text_color()),
+                );
+                if let Some(release) = self.self_update.clone() {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(
+                            ui.visuals().warn_fg_color,
+                            format!(
+                                "Installer update available: {} (you have {})",
+                                release.version,
+                                env!("CARGO_PKG_VERSION")
+                            ),
+                        );
+                        if ui
+                            .add_enabled(!busy, egui::Button::new("Update and restart"))
+                            .clicked()
+                        {
+                            let shared = download::Shared::default();
+                            let worker = shared.clone();
+                            let handle =
+                                std::thread::spawn(move || selfupdate::apply(&release, &worker));
+                            self.job = Some(Job { shared, handle });
+                            self.status.clear();
+                        }
+                    });
+                    self.progress_ui(ui);
+                }
+                if let Some(e) = &self.manifest_error {
                     ui.colored_label(
                         ui.visuals().warn_fg_color,
-                        format!(
-                            "Installer update available: {} (you have {})",
-                            release.version,
-                            env!("CARGO_PKG_VERSION")
-                        ),
+                        format!("Could not check for updates: {e}"),
                     );
-                    if ui
-                        .add_enabled(!busy, egui::Button::new("Update and restart"))
-                        .clicked()
-                    {
-                        let shared = download::Shared::default();
-                        let worker = shared.clone();
-                        let handle =
-                            std::thread::spawn(move || selfupdate::apply(&release, &worker));
-                        self.job = Some(Job { shared, handle });
-                        self.status.clear();
+                }
+                if self.step == Step::Configure && self.first_pending().is_none() {
+                    ui.colored_label(
+                        Self::status_color(Health::Ok, ui.visuals().dark_mode),
+                        "✔ EuroScope, VC++ and the controller pack are all up to date",
+                    );
+                }
+                ui.add_space(16.0);
+                egui::Frame::new().show(ui, |ui| match self.step {
+                    Step::EuroScope => {
+                        self.euroscope_ui(ui);
+                    }
+                    Step::VcRedist => {
+                        self.vcredist_ui(ui);
+                    }
+                    Step::ControllerPack => {
+                        self.pack_ui(ui);
+                    }
+                    Step::Configure => {
+                        self.config_ui(ui);
+                    }
+                    Step::Backups => {
+                        self.backups_ui(ui);
                     }
                 });
-                self.progress_ui(ui);
-            }
-            if let Some(e) = &self.manifest_error {
-                ui.colored_label(ui.visuals().warn_fg_color, format!("Could not check for updates: {e}"));
-            }
-            if self.step == Step::Configure && self.first_pending().is_none() {
-                ui.colored_label(
-                    Self::status_color(Health::Ok, ui.visuals().dark_mode),
-                    "✔ EuroScope, VC++ and the controller pack are all up to date",
-                );
-            }
-            ui.add_space(16.0);
-            egui::Frame::new()
-                .show(ui, |ui| {
-            match self.step {
-                Step::EuroScope => {
-                    self.euroscope_ui(ui);
-                }
-                Step::VcRedist => {
-                    self.vcredist_ui(ui);
-                }
-                Step::ControllerPack => {
-                    self.pack_ui(ui);
-                }
-                Step::Configure => {
-                    self.config_ui(ui);
-                }
-                Step::Backups => {
-                    self.backups_ui(ui);
-                }
-            }
             });
-        });
     }
 }

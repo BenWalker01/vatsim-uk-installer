@@ -151,7 +151,15 @@ mod tests {
                 sha256: "ab".into()
             })
         );
-        assert!(parse_release(&body("v0.1.0", r#""sha256:ab""#), "0.1.0").unwrap().is_none());
-        assert!(parse_release(&body("v0.2.0", "null"), "0.1.0").unwrap().is_none());
+        assert!(
+            parse_release(&body("v0.1.0", r#""sha256:ab""#), "0.1.0")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            parse_release(&body("v0.2.0", "null"), "0.1.0")
+                .unwrap()
+                .is_none()
+        );
     }
 }

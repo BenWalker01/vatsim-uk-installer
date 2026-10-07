@@ -138,7 +138,9 @@ pub fn install(url: &str, shared: &Shared) -> anyhow::Result<()> {
 
     let actual = hex::encode(hasher.finalize());
     if actual != EXPECTED_SHA256 {
-        anyhow::bail!("EuroScope installer checksum mismatch: expected {EXPECTED_SHA256}, got {actual}");
+        anyhow::bail!(
+            "EuroScope installer checksum mismatch: expected {EXPECTED_SHA256}, got {actual}"
+        );
     }
 
     download::set_message(shared, "Running EuroScope installer");
