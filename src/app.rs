@@ -46,6 +46,7 @@ struct UpdateOptions {
 }
 
 pub struct App {
+    confirm_update: bool,
     update_opts: UpdateOptions,
     backups: Vec<backup::Backup>,
     backups_dirty: bool,
@@ -151,10 +152,11 @@ impl App {
 
     pub fn new(ctx: egui::Context) -> Self {
         let mut app = App {
+            confirm_update: false,
             update_opts: UpdateOptions {
                 backup: true,
-                save_layout: true,
-                apply_config: false,
+                save_layout: false,
+                apply_config: true,
             },
             backups: Vec::new(),
             backups_dirty: true,
@@ -524,9 +526,6 @@ impl App {
             match &cfg {
                 // Also re-applies any saved screen layout.
                 Some(cfg) => config::apply(cfg, &dir, &worker)?,
-                None if opts.save_layout => {
-                    layout::apply(&dir)?;
-                }
                 None => {}
             }
             Ok(())
@@ -597,17 +596,6 @@ impl App {
         let mut start = false;
         let idle = self.job.is_none();
         let existing = self.state.pack_version.is_some();
-        let opts = &mut self.update_opts;
-        let mut options = |ui: &mut egui::Ui| {
-            if existing {
-                ui.checkbox(&mut opts.backup, "Back up my existing pack first");
-                ui.checkbox(
-                    &mut opts.save_layout,
-                    "Keep the position of my items on screen",
-                );
-                ui.weak("Your saved settings are re-applied automatically.");
-            }
-        };
         match &plan {
             None => {
                 ui.label("No releases found.");
@@ -620,24 +608,91 @@ impl App {
                 for r in p {
                     ui.label(format!("  {}", r.version));
                 }
-                options(ui);
                 start = ui.add_enabled(idle, egui::Button::new("Update")).clicked();
             }
             Some(updater::Plan::Reinstall(r)) => {
                 ui.label(format!("Full install of {}.", r.version));
-                options(ui);
                 start = ui.add_enabled(idle, egui::Button::new("Install")).clicked();
             }
         }
         if start {
-            let mut opts = UpdateOptions::default();
             if existing {
-                opts = self.update_opts;
-                let dir = self.pack_dir();
-                opts.apply_config = config::exists(dir.as_deref())
-                    && config::load(dir.as_deref()).validate().is_none();
+                self.confirm_update = true;
+            } else {
+                self.start_update(UpdateOptions::default());
             }
+        }
+        if self.confirm_update {
+            self.update_prompt(ui);
+        }
+    }
+
+    /// Modal asking the two questions that are easy to miss as tick boxes.
+    fn update_prompt(&mut self, ui: &mut egui::Ui) {
+        let dir = self.pack_dir();
+        let settings_ok = config::exists(dir.as_deref())
+            && config::load(dir.as_deref()).validate().is_none();
+        let saved_layout = layout::load_layout().len();
+        let mut opts = self.update_opts;
+        let (mut go, mut cancel) = (false, false);
+        let yes_no = |ui: &mut egui::Ui, question: &str, value: &mut bool, enabled: bool| {
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new(question).strong().size(18.0));
+            ui.horizontal(|ui| {
+                ui.add_enabled_ui(enabled, |ui| {
+                    ui.selectable_value(value, true, "Yes");
+                    ui.selectable_value(value, false, "No");
+                });
+            });
+        };
+        let modal = egui::Modal::new(egui::Id::new("update_prompt")).show(ui.ctx(), |ui| {
+            ui.set_width(440.0);
+            ui.heading("Before we update");
+            yes_no(ui, "Back up your current pack first?", &mut opts.backup, true);
+            if !settings_ok {
+                opts.apply_config = false;
+            }
+            yes_no(
+                ui,
+                "Apply your saved settings and screen layout once the update is done?",
+                &mut opts.apply_config,
+                settings_ok,
+            );
+            if !settings_ok {
+                ui.weak("No complete saved settings were found, so there is nothing to apply.");
+            }
+            yes_no(
+                ui,
+                "Take a new snapshot of your current screen layout first?",
+                &mut opts.save_layout,
+                true,
+            );
+            ui.weak(if opts.save_layout {
+                "Your current EuroScope window positions will replace the saved layout."
+            } else if saved_layout > 0 {
+                "No new snapshot: your previously saved layout will be re-applied as it is."
+            } else {
+                "No new snapshot, and no layout has been saved yet."
+            });
+            ui.add_space(14.0);
+            ui.horizontal(|ui| {
+                go = ui
+                    .add_enabled(
+                        self.job.is_none(),
+                        egui::Button::new(egui::RichText::new("Start update").strong())
+                            .fill(ui.visuals().selection.bg_fill)
+                            .min_size(egui::vec2(160.0, 38.0)),
+                    )
+                    .clicked();
+                cancel = ui.button("Cancel").clicked();
+            });
+        });
+        self.update_opts = opts;
+        if go {
+            self.confirm_update = false;
             self.start_update(opts);
+        } else if cancel || modal.should_close() {
+            self.confirm_update = false;
         }
     }
 
