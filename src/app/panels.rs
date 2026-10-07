@@ -91,7 +91,7 @@ impl App {
                 ui.separator();
                 ui.add_space(8.0);
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                    ui.weak("EuroScope 3.2.3.2");
+                    ui.weak(format!("Version {}", env!("CARGO_PKG_VERSION")));
                     ui.horizontal(|ui| {
                         ui.label("Theme");
                         self.theme_ui(ui);

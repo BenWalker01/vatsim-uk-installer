@@ -3558,7 +3558,7 @@ dependencies = [
 
 [[package]]
 name = "vatsim-uk-installer"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "dirs",

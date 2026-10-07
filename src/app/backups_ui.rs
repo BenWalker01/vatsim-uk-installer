@@ -106,7 +106,7 @@ impl App {
                 self.backups_dirty = true;
             }
         });
-        ui.label("Restoring replaces your current pack folder. Close EuroScope first.");
+        ui.label("Restoring replaces your current pack folder.");
         self.progress_ui(ui);
         if restore {
             let Some(dir) = self.pack_dir() else {
