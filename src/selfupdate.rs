@@ -118,11 +118,22 @@ pub fn apply(release: &Release, shared: &Shared) -> anyhow::Result<()> {
     std::process::exit(0);
 }
 
-/// Remove the previous exe left behind by a self-update.
+/// Remove the previous exe left behind by a self-update. The old process may still be
+/// exiting when the new one starts, so retry briefly in the background.
 pub fn cleanup() {
-    if let Ok(exe) = std::env::current_exe() {
-        let _ = std::fs::remove_file(sibling(&exe, ".old"));
+    let Ok(exe) = std::env::current_exe() else { return };
+    let old = sibling(&exe, ".old");
+    if !old.exists() {
+        return;
     }
+    std::thread::spawn(move || {
+        for _ in 0..20 {
+            if std::fs::remove_file(&old).is_ok() || !old.exists() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    });
 }
 
 #[cfg(test)]
