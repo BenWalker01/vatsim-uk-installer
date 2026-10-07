@@ -6,7 +6,7 @@ use crate::{
     download, euroscope, layout,
     manifest::Manifest,
     pack,
-    state::State,
+    state::{State, ThemePreference},
     updater, vcredist,
 };
 use eframe::egui;
@@ -50,6 +50,7 @@ pub struct App {
     selected_backup: Option<(std::path::PathBuf, Result<Vec<String>, String>)>,
     step: Step,
     state: State,
+    applied_theme: Option<egui::Theme>,
     manifest: Option<Manifest>,
     manifest_error: Option<String>,
     euroscope: Option<euroscope::Detected>,
@@ -102,17 +103,32 @@ impl App {
         }
     }
 
-    fn setup_status(&self, step: Step) -> (&'static str, egui::Color32) {
+    fn setup_status(&self, step: Step, dark_mode: bool) -> (&'static str, egui::Color32) {
+        let success = if dark_mode {
+            egui::Color32::from_rgb(110, 190, 145)
+        } else {
+            egui::Color32::from_rgb(32, 126, 78)
+        };
+        let muted = if dark_mode {
+            egui::Color32::from_rgb(158, 165, 174)
+        } else {
+            egui::Color32::from_rgb(99, 108, 119)
+        };
+        let warning = if dark_mode {
+            egui::Color32::from_rgb(230, 180, 112)
+        } else {
+            egui::Color32::from_rgb(151, 91, 20)
+        };
         if step == Step::ControllerPack {
             return match (
                 self.state.pack_version,
                 self.manifest.as_ref().and_then(Manifest::latest),
             ) {
-                (None, _) => ("Missing", egui::Color32::from_rgb(158, 165, 174)),
+                (None, _) => ("Missing", muted),
                 (Some(installed), Some(latest)) if installed == latest.version => {
-                    ("Ready", egui::Color32::from_rgb(110, 190, 145))
+                    ("Ready", success)
                 }
-                (Some(_), _) => ("Outdated", egui::Color32::from_rgb(230, 180, 112)),
+                (Some(_), _) => ("Outdated", warning),
             };
         }
 
@@ -122,13 +138,13 @@ impl App {
             _ => false,
         };
         if ready {
-            ("Ready", egui::Color32::from_rgb(110, 190, 145))
+            ("Ready", success)
         } else {
-            ("Not set up", egui::Color32::from_rgb(158, 165, 174))
+            ("Not set up", muted)
         }
     }
 
-    pub fn new() -> Self {
+    pub fn new(ctx: egui::Context) -> Self {
         let mut app = App {
             wizard: true,
             confirm_update: None,
@@ -137,6 +153,7 @@ impl App {
             selected_backup: None,
             step: Step::Welcome,
             state: State::load(),
+            applied_theme: None,
             manifest: None,
             manifest_error: None,
             euroscope: None,
@@ -154,7 +171,96 @@ impl App {
         app.reload_state();
         app.config = config::load(app.pack_dir().as_deref());
         app.wizard = !app.setup_complete();
+        ctx.set_theme(app.state.theme.egui());
+        app.apply_style(&ctx);
         app
+    }
+
+    fn apply_style(&mut self, ctx: &egui::Context) {
+        let theme = ctx.theme();
+        ctx.all_styles_mut(|style| {
+            use egui::{Color32, FontId, Stroke, TextStyle};
+            for (text_style, size) in [
+                (TextStyle::Body, 16.0),
+                (TextStyle::Button, 16.0),
+                (TextStyle::Small, 13.0),
+                (TextStyle::Monospace, 15.0),
+                (TextStyle::Heading, 26.0),
+            ] {
+                style
+                    .text_styles
+                    .insert(text_style, FontId::proportional(size));
+            }
+            style.spacing.item_spacing = [12.0, 10.0].into();
+            style.spacing.button_padding = [14.0, 8.0].into();
+            style.spacing.interact_size.y = 34.0;
+            let mut visuals = theme.default_visuals();
+            if theme == egui::Theme::Dark {
+                visuals.panel_fill = Color32::from_rgb(25, 28, 33);
+                visuals.window_fill = Color32::from_rgb(32, 36, 42);
+                visuals.extreme_bg_color = Color32::from_rgb(19, 22, 26);
+                visuals.faint_bg_color = Color32::from_rgb(39, 44, 51);
+                visuals.selection.bg_fill = Color32::from_rgb(47, 71, 96);
+                visuals.selection.stroke = Stroke::new(1.0, Color32::from_rgb(117, 169, 222));
+                visuals.widgets.inactive.bg_fill = Color32::from_rgb(39, 44, 51);
+                visuals.widgets.inactive.bg_stroke =
+                    Stroke::new(1.0, Color32::from_rgb(57, 64, 73));
+                visuals.widgets.hovered.bg_fill = Color32::from_rgb(48, 56, 66);
+                visuals.widgets.hovered.bg_stroke =
+                    Stroke::new(1.0, Color32::from_rgb(91, 117, 145));
+                visuals.widgets.active.bg_fill = Color32::from_rgb(47, 71, 96);
+                visuals.widgets.active.bg_stroke =
+                    Stroke::new(1.0, Color32::from_rgb(117, 169, 222));
+            } else {
+                visuals.panel_fill = Color32::from_rgb(250, 251, 253);
+                visuals.window_fill = Color32::WHITE;
+                visuals.extreme_bg_color = Color32::WHITE;
+                visuals.faint_bg_color = Color32::from_rgb(239, 242, 246);
+                visuals.selection.bg_fill = Color32::from_rgb(218, 232, 248);
+                visuals.selection.stroke = Stroke::new(1.0, Color32::from_rgb(54, 105, 160));
+                visuals.widgets.inactive.bg_fill = Color32::from_rgb(244, 246, 249);
+                visuals.widgets.inactive.bg_stroke =
+                    Stroke::new(1.0, Color32::from_rgb(210, 216, 224));
+                visuals.widgets.hovered.bg_fill = Color32::from_rgb(232, 239, 247);
+                visuals.widgets.hovered.bg_stroke =
+                    Stroke::new(1.0, Color32::from_rgb(133, 160, 190));
+                visuals.widgets.active.bg_fill = Color32::from_rgb(210, 228, 247);
+                visuals.widgets.active.bg_stroke =
+                    Stroke::new(1.0, Color32::from_rgb(54, 105, 160));
+            }
+            for widget in [
+                &mut visuals.widgets.noninteractive,
+                &mut visuals.widgets.inactive,
+                &mut visuals.widgets.hovered,
+                &mut visuals.widgets.active,
+            ] {
+                widget.corner_radius = egui::CornerRadius::same(3);
+            }
+            style.visuals = visuals;
+        });
+        self.applied_theme = Some(theme);
+    }
+
+    fn theme_ui(&mut self, ui: &mut egui::Ui) {
+        let mut preference = self.state.theme;
+        egui::ComboBox::from_id_salt("theme_preference")
+            .selected_text(preference.label())
+            .show_ui(ui, |ui| {
+                for option in [
+                    ThemePreference::Auto,
+                    ThemePreference::Light,
+                    ThemePreference::Dark,
+                ] {
+                    ui.selectable_value(&mut preference, option, option.label());
+                }
+            });
+        if preference != self.state.theme {
+            self.state.theme = preference;
+            ui.ctx().set_theme(preference.egui());
+            if let Err(e) = self.state.save() {
+                self.status = format!("Could not save theme preference: {e}");
+            }
+        }
     }
 
     /// Re-run all detection checks.
@@ -203,7 +309,7 @@ impl App {
                         ui.label("Version OK.");
                     } else {
                         ui.colored_label(
-                            egui::Color32::YELLOW,
+                            ui.visuals().warn_fg_color,
                             format!(
                                 "Version {required} is required. Fully uninstall this version before installing it; downgrading requires a full uninstall."
                             ),
@@ -222,7 +328,7 @@ impl App {
                 }
             }
             None => {
-                ui.colored_label(egui::Color32::LIGHT_RED, "EuroScope was not found.");
+                ui.colored_label(ui.visuals().error_fg_color, "EuroScope was not found.");
                 ui.label("For a fresh install, follow the EuroScope setup guide.");
                 ui.hyperlink_to("Open the EuroScope Setup Guide", euroscope::SETUP_GUIDE_URL);
                 if ui
@@ -275,9 +381,19 @@ impl App {
             } else if let Some((k, t)) = self.checked {
                 if k == key && t.elapsed() < SHOW {
                     if ok {
-                        ui.colored_label(egui::Color32::from_rgb(110, 190, 145), "✔ Up to date");
+                        ui.colored_label(
+                            if ui.visuals().dark_mode {
+                                egui::Color32::from_rgb(110, 190, 145)
+                            } else {
+                                egui::Color32::from_rgb(32, 126, 78)
+                            },
+                            "✔ Up to date",
+                        );
                     } else {
-                        ui.colored_label(egui::Color32::LIGHT_RED, "✖ Not found / needs attention");
+                        ui.colored_label(
+                            ui.visuals().error_fg_color,
+                            "✖ Not found / needs attention",
+                        );
                     }
                     ui.ctx().request_repaint_after(SHOW);
                 }
@@ -291,7 +407,7 @@ impl App {
             ui.label("Visual C++ Redistributable (x86) is installed.");
         } else {
             ui.colored_label(
-                egui::Color32::LIGHT_RED,
+                ui.visuals().error_fg_color,
                 "Visual C++ Redistributable not found.",
             );
             ui.hyperlink_to("Microsoft's supported downloads", vcredist::DOWNLOADS_URL);
@@ -649,7 +765,7 @@ impl App {
                     });
             }
             Err(e) => {
-                ui.colored_label(egui::Color32::LIGHT_RED, e);
+                ui.colored_label(ui.visuals().error_fg_color, e);
             }
         }
         ui.separator();
@@ -794,7 +910,7 @@ impl App {
         ui.horizontal(|ui| {
             for (tab, name) in ConfigTab::ALL {
                 let label = if tab == ConfigTab::Details && problem.is_some() {
-                    egui::RichText::new(format!("{name} ●")).color(egui::Color32::LIGHT_RED)
+                    egui::RichText::new(format!("{name} ●")).color(ui.visuals().error_fg_color)
                 } else {
                     egui::RichText::new(name)
                 };
@@ -809,7 +925,7 @@ impl App {
             let c = &mut self.config;
             let hint = |ui: &mut egui::Ui, bad: bool, msg: &str| {
                 if bad {
-                    ui.colored_label(egui::Color32::LIGHT_RED, msg);
+                    ui.colored_label(ui.visuals().error_fg_color, msg);
                 }
             };
             let font = config::FONT_OPTIONS.iter().find(|o| o.0 == c.font_size).map_or("", |o| o.1);
@@ -954,7 +1070,7 @@ impl App {
             }
             if let Some(msg) = problem {
                 ui.colored_label(
-                    egui::Color32::LIGHT_RED,
+                    ui.visuals().error_fg_color,
                     format!("Complete your details: {msg}"),
                 );
             }
@@ -964,10 +1080,14 @@ impl App {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if self.applied_theme != Some(ui.ctx().theme()) {
+            self.apply_style(ui.ctx());
+        }
         self.poll_job(ui);
         let busy = self.job.is_some();
         if busy && ui.ctx().input(|i| i.viewport().close_requested()) {
-            ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.status = "Please wait for the current task to finish before closing.".into();
         }
         egui::Panel::left("steps")
@@ -976,7 +1096,11 @@ impl eframe::App for App {
             .size_range(232.0..=232.0)
             .frame(
                 egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(30, 34, 40))
+                    .fill(if ui.visuals().dark_mode {
+                        egui::Color32::from_rgb(30, 34, 40)
+                    } else {
+                        egui::Color32::from_rgb(239, 242, 246)
+                    })
                     .inner_margin(egui::Margin::same(20)),
             )
             .show(ui, |ui| {
@@ -984,7 +1108,7 @@ impl eframe::App for App {
                 ui.label(
                     egui::RichText::new("CONTROLLER PACK")
                         .small()
-                        .color(egui::Color32::from_rgb(150, 160, 173)),
+                        .color(ui.visuals().weak_text_color()),
                 );
                 ui.add_space(18.0);
                 ui.label(
@@ -995,7 +1119,7 @@ impl eframe::App for App {
                     })
                     .small()
                     .strong()
-                    .color(egui::Color32::from_rgb(150, 160, 173)),
+                    .color(ui.visuals().weak_text_color()),
                 );
                 ui.add_space(8.0);
                 let steps = self.steps();
@@ -1004,20 +1128,23 @@ impl eframe::App for App {
                     let active = self.step == *s;
                     let completed = self.wizard && i < current;
                     let text = if completed {
-                        egui::RichText::new(format!("✓  {name}"))
-                            .color(egui::Color32::from_rgb(110, 190, 145))
+                        egui::RichText::new(format!("✓  {name}")).color(if ui.visuals().dark_mode {
+                            egui::Color32::from_rgb(110, 190, 145)
+                        } else {
+                            egui::Color32::from_rgb(32, 126, 78)
+                        })
                     } else if active {
                         egui::RichText::new(format!("{:02}  {name}", i + 1))
-                            .color(egui::Color32::from_rgb(154, 195, 235))
+                            .color(ui.visuals().selection.stroke.color)
                             .strong()
                     } else {
                         egui::RichText::new(format!("{:02}  {name}", i + 1))
-                            .color(egui::Color32::from_rgb(184, 190, 199))
+                            .color(ui.visuals().text_color())
                     };
                     if self.wizard {
                         egui::Frame::new()
                             .fill(if active {
-                                egui::Color32::from_rgb(43, 54, 67)
+                                ui.visuals().selection.bg_fill
                             } else {
                                 egui::Color32::TRANSPARENT
                             })
@@ -1041,13 +1168,23 @@ impl eframe::App for App {
                 ui.add_space(16.0);
                 ui.separator();
                 ui.add_space(8.0);
-                ui.weak("EuroScope 3.2.3.2");
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                    ui.weak("EuroScope 3.2.3.2");
+                    ui.horizontal(|ui| {
+                        ui.label("Theme");
+                        self.theme_ui(ui);
+                    });
+                });
             });
 
         egui::Panel::bottom("footer")
             .frame(
                 egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(30, 34, 40))
+                    .fill(if ui.visuals().dark_mode {
+                        egui::Color32::from_rgb(30, 34, 40)
+                    } else {
+                        egui::Color32::from_rgb(239, 242, 246)
+                    })
                     .inner_margin(egui::Margin::symmetric(22, 12)),
             )
             .show(ui, |ui| {
@@ -1058,9 +1195,9 @@ impl eframe::App for App {
                             || self.status.starts_with("Cannot")
                             || self.status.starts_with("No ");
                         ui.label(egui::RichText::new(&self.status).color(if is_error {
-                            egui::Color32::from_rgb(231, 135, 135)
+                            ui.visuals().error_fg_color
                         } else {
-                            egui::Color32::from_rgb(190, 197, 207)
+                            ui.visuals().text_color()
                         }));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1094,7 +1231,9 @@ impl eframe::App for App {
                         }
                         if self.wizard
                             && self.step == Step::Done
-                            && ui.add_enabled(!busy, egui::Button::new("Finish setup")).clicked()
+                            && ui
+                                .add_enabled(!busy, egui::Button::new("Finish setup"))
+                                .clicked()
                         {
                             self.wizard = false;
                         }
@@ -1105,7 +1244,7 @@ impl eframe::App for App {
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(25, 28, 33))
+                    .fill(ui.visuals().panel_fill)
                     .inner_margin(egui::Margin::same(24)),
             )
             .show(ui, |ui| {
@@ -1113,7 +1252,7 @@ impl eframe::App for App {
                 let steps = self.steps();
                 let current = steps.iter().position(|(s, _)| *s == self.step).unwrap_or(0);
                 ui.label(egui::RichText::new(format!("STEP {} OF {}", current + 1, steps.len()))
-                    .small().strong().color(egui::Color32::from_rgb(154, 195, 235)));
+                    .small().strong().color(ui.visuals().selection.stroke.color));
             }
             ui.heading(match self.step {
                 Step::Welcome => "Welcome",
@@ -1126,7 +1265,7 @@ impl eframe::App for App {
                 Step::Done => "You're all set",
             });
             ui.label(egui::RichText::new(self.step_description())
-                .color(egui::Color32::from_rgb(176, 184, 194)));
+                .color(ui.visuals().weak_text_color()));
             ui.add_space(16.0);
             egui::Frame::new()
                 .show(ui, |ui| {
@@ -1136,14 +1275,14 @@ impl eframe::App for App {
                     ui.label("This installer checks the essentials, installs anything missing and keeps your UK controller pack up to date.");
                     ui.add_space(16.0);
                     ui.label(egui::RichText::new("BEFORE YOU START").small().strong()
-                        .color(egui::Color32::from_rgb(150, 160, 173)));
+                        .color(ui.visuals().weak_text_color()));
                     ui.add_space(6.0);
                     for (step, name) in [
                         (Step::EuroScope, "EuroScope"),
                         (Step::VcRedist, "Visual C++ runtime"),
                         (Step::ControllerPack, "UK controller pack"),
                     ] {
-                        let (status, color) = self.setup_status(step);
+                        let (status, color) = self.setup_status(step, ui.visuals().dark_mode);
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("•").color(color).strong());
                             ui.label(name);
@@ -1156,7 +1295,7 @@ impl eframe::App for App {
                     ui.weak("Your saved settings and screen layout can be kept when the pack is updated.");
                     if let Some(e) = &self.manifest_error {
                         ui.add_space(12.0);
-                        ui.colored_label(egui::Color32::from_rgb(230, 180, 112), format!("Could not check for pack updates: {e}"));
+                        ui.colored_label(ui.visuals().warn_fg_color, format!("Could not check for pack updates: {e}"));
                     }
                 }
                 Step::EuroScope => {
