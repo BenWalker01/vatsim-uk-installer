@@ -9,6 +9,10 @@ use std::{
 };
 
 use sha2::{Digest, Sha256};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 use crate::download::{self, Shared};
 
@@ -18,7 +22,10 @@ const EXPECTED_SHA256: &str = "0c09f2611660441084ce0df425c51c11e147e6447963c3690
 
 /// Checks the registry for the x86 VC++ 2015-2022 runtime (EuroScope is 32-bit).
 pub fn is_installed() -> bool {
-    Command::new("reg")
+    let mut command = Command::new("reg");
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
         .args([
             "query",
             r"HKLM\SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x86",
