@@ -8,7 +8,12 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use sha2::{Digest, Sha256};
+
 use crate::download::{self, Shared};
+
+// SHA-256 of EuroScopeSetup.3.2.3.2.msi; must be updated with the required version.
+const EXPECTED_SHA256: &str = "de11bf2f62e47d8bda7e6c54f49f24fd96e46de37b0d2381e6020623c48cc7f1";
 
 pub const SETUP_GUIDE_URL: &str =
     "https://docs.vatsim.uk/General/Use%20of%20Software/EuroScope%20Setup%20Guide/";
@@ -117,17 +122,24 @@ pub fn install(url: &str, shared: &Shared) -> anyhow::Result<()> {
     let (path, mut file) = create_temp_installer()?;
     let _cleanup = TempInstaller(path.clone());
     let mut reader = response.into_body().into_reader();
+    let mut hasher = Sha256::new();
     let mut buffer = [0u8; 64 * 1024];
     loop {
         let n = reader.read(&mut buffer)?;
         if n == 0 {
             break;
         }
+        hasher.update(&buffer[..n]);
         file.write_all(&buffer[..n])?;
         shared.lock().unwrap().done += n as u64;
     }
     file.flush()?;
     drop(file);
+
+    let actual = hex::encode(hasher.finalize());
+    if actual != EXPECTED_SHA256 {
+        anyhow::bail!("EuroScope installer checksum mismatch: expected {EXPECTED_SHA256}, got {actual}");
+    }
 
     download::set_message(shared, "Running EuroScope installer");
     let status = Command::new("msiexec.exe").arg("/i").arg(&path).status()?;
