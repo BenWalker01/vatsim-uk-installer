@@ -546,7 +546,7 @@ impl App {
             let result = job.handle.join();
             let succeeded = matches!(result, Ok(Ok(())));
             self.status = match result {
-                Ok(Ok(())) => "Done".into(),
+                Ok(Ok(())) => String::new(),
                 Ok(Err(e)) => format!("Failed: {e}"),
                 Err(_) => "Worker thread panicked".into(),
             };
