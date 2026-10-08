@@ -64,6 +64,33 @@ pub(super) fn patch_rdf(path: &Path, mode: &str) -> anyhow::Result<()> {
     write_text(path, &(lines.join("\n") + "\n"))
 }
 
+pub(super) fn patch_smr_north_up(path: &Path) -> anyhow::Result<()> {
+    let text = read_text(path)?;
+    let mut is_smr = false;
+    let mut has_rotation = false;
+    let mut lines = Vec::new();
+    for line in text.lines() {
+        if line.contains("DisplayTypeName:SMR") {
+            is_smr = true;
+        }
+        if line.starts_with("DisplayRotation:") {
+            if !has_rotation {
+                lines.push("DisplayRotation:0.00000".to_string());
+                has_rotation = true;
+            }
+        } else {
+            lines.push(line.to_string());
+        }
+    }
+    if !is_smr {
+        return Ok(());
+    }
+    if !has_rotation {
+        lines.push("DisplayRotation:0.00000".into());
+    }
+    write_text(path, &(lines.join("\n") + "\n"))
+}
+
 pub(super) fn patch_sct(path: &Path, cfg: &Config) -> anyhow::Result<()> {
     let text = read_text(path)?;
     let lines: Vec<String> = text
@@ -151,6 +178,44 @@ mod tests {
         patch_rdf(&radar, "off").unwrap();
         patch_rdf(&smr, "off").unwrap();
         assert!(!has(&radar) && !has(&smr));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn north_up_sets_every_smr_rotation_without_touching_other_displays() {
+        let dir = std::env::temp_dir().join(format!("ukrotation-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let defined = dir.join("defined.asr");
+        let missing = dir.join("missing.asr");
+        let radar = dir.join("radar.asr");
+        std::fs::write(
+            &defined,
+            "DisplayTypeName:SMR\nDisplayRotation:90.00000\nDisplayRotation:180.00000\n",
+        )
+        .unwrap();
+        std::fs::write(&missing, "DisplayTypeName:SMR\n").unwrap();
+        std::fs::write(&radar, "DisplayTypeName:Radar\nDisplayRotation:90.00000\n").unwrap();
+
+        patch_smr_north_up(&defined).unwrap();
+        patch_smr_north_up(&missing).unwrap();
+        patch_smr_north_up(&radar).unwrap();
+
+        let defined_text = read_text(&defined).unwrap();
+        assert_eq!(
+            defined_text
+                .lines()
+                .filter(|line| *line == "DisplayRotation:0.00000")
+                .count(),
+            1
+        );
+        assert_eq!(
+            read_text(&missing).unwrap(),
+            "DisplayTypeName:SMR\nDisplayRotation:0.00000\n"
+        );
+        assert_eq!(
+            read_text(&radar).unwrap(),
+            "DisplayTypeName:Radar\nDisplayRotation:90.00000\n"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -308,6 +308,7 @@ impl App {
             "DiscordEuroscope plugin (shows where you're controlling)",
             &mut config.discord_presence,
         );
+        ui.checkbox(&mut config.north_up_smrs, "Set all SMRs to north up");
 
         let rdf_mode = config::RDF_OPTIONS
             .iter()

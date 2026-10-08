@@ -83,6 +83,7 @@ pub struct Config {
     /// `default` (leave the pack as shipped), `small`, `medium` or `large`.
     pub font_size: String,
     pub advanced_config: bool,
+    pub north_up_smrs: bool,
 }
 
 pub const FONT_OPTIONS: &[(&str, &str, &str)] = &[
@@ -127,6 +128,7 @@ impl Default for Config {
             rdf_mode: "off".into(),
             font_size: "default".into(),
             advanced_config: false,
+            north_up_smrs: false,
         }
     }
 }

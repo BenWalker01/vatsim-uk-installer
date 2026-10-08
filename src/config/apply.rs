@@ -16,7 +16,8 @@ pub fn apply(cfg: &Config, root: &Path, shared: &download::Shared) -> anyhow::Re
     walk(root, &mut files);
     {
         let passes = if cfg.advanced_config { 2 } else { 1 };
-        shared.lock().unwrap().total = Some((files.len() * passes + 5) as u64);
+        let rotation_pass = usize::from(cfg.north_up_smrs);
+        shared.lock().unwrap().total = Some((files.len() * (passes + rotation_pass) + 5) as u64);
     }
     let step = || shared.lock().unwrap().done += 1;
     let mut errors = Vec::new();
@@ -90,9 +91,21 @@ pub fn apply(cfg: &Config, root: &Path, shared: &download::Shared) -> anyhow::Re
     }
 
     // Last, so saved screen positions win over anything the passes above touched.
+    drop(note);
     step();
     if let Err(e) = crate::pack::layout::apply(root) {
         errors.push(format!("saved screen layout: {e}"));
+    }
+
+    if cfg.north_up_smrs {
+        for p in &files {
+            step();
+            if ends_with_ci(&file_name(p), ".asr") {
+                if let Err(e) = patch_smr_north_up(p) {
+                    errors.push(format!("{}: {e}", p.display()));
+                }
+            }
+        }
     }
 
     anyhow::ensure!(errors.is_empty(), "{}", errors.join("; "));
