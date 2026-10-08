@@ -123,7 +123,7 @@ impl App {
         ui.horizontal(|ui| {
             for (tab, name) in ConfigTab::ALL {
                 let label = if tab == ConfigTab::Details && problem.is_some() {
-                    egui::RichText::new(format!("{name} ●")).color(ui.visuals().error_fg_color)
+                    egui::RichText::new(format!("{name} ✖")).color(ui.visuals().error_fg_color)
                 } else {
                     egui::RichText::new(name)
                 };
@@ -192,13 +192,13 @@ impl App {
             .spacing([16.0, 12.0])
             .show(ui, |ui| {
                 ui.label("Name (as on VATSIM)");
-                ui.add_sized([360.0, 30.0], egui::TextEdit::singleline(&mut config.name));
+                ui.add_sized([200.0, 24.0], egui::TextEdit::singleline(&mut config.name));
                 hint(ui, config.name.trim().is_empty(), "Required");
                 ui.end_row();
 
                 ui.label("Initials");
                 ui.add_sized(
-                    [360.0, 30.0],
+                    [200.0, 24.0],
                     egui::TextEdit::singleline(&mut config.initials).hint_text("2-3 letters"),
                 );
                 hint(
@@ -209,7 +209,7 @@ impl App {
                 ui.end_row();
 
                 ui.label("VATSIM CID");
-                ui.add_sized([360.0, 30.0], egui::TextEdit::singleline(&mut config.cid));
+                ui.add_sized([200.0, 24.0], egui::TextEdit::singleline(&mut config.cid));
                 hint(ui, !config::is_valid_cid(&config.cid), "6 or 7 digits");
                 ui.end_row();
 
@@ -230,7 +230,7 @@ impl App {
 
                 ui.label("VATSIM password");
                 ui.add_sized(
-                    [360.0, 30.0],
+                    [200.0, 24.0],
                     egui::TextEdit::singleline(&mut config.password).password(true),
                 );
                 hint(ui, config.password.is_empty(), "Required");
@@ -238,7 +238,7 @@ impl App {
 
                 ui.label("Hoppie CPDLC code");
                 ui.add_sized(
-                    [360.0, 30.0],
+                    [200.0, 24.0],
                     egui::TextEdit::singleline(&mut config.cpdlc).hint_text("optional"),
                 );
                 ui.end_row();
