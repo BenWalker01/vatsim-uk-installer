@@ -80,29 +80,16 @@ pub struct Config {
     pub asel_key: String,
     /// `off`, `radar` (radar displays only) or `on` (SMRs too).
     pub rdf_mode: String,
-    /// `default` (leave the pack as shipped), `small`, `medium` or `large`.
+    /// A numeric text size, or `default` to leave the pack as shipped.
     pub font_size: String,
     pub advanced_config: bool,
     pub north_up_smrs: bool,
 }
 
-pub const FONT_OPTIONS: &[(&str, &str, &str)] = &[
-    ("default", "Pack default (unchanged)", ""),
-    ("small", "Small", "3.0"),
-    ("medium", "Medium", "3.5"),
-    ("large", "Large", "4.0"),
-];
-
-/// SIMBOLOGY.txt entries (`Type:Name`) whose text size is controlled by the font size option.
-const SYMBOLOGY_FONT_ENTRIES: &[&str] = &[
-    "Metar:normal",
-    "Metar:modified",
-    "Metar:timeout",
-    "Other:list header",
-    "Chat:text",
-    "Chat:name normal",
-    "Chat:name unread",
-];
+pub fn font_size_value(value: &str) -> f32 {
+    let size = value.parse::<f32>().unwrap_or(3.5).clamp(0.0, 15.0);
+    (size * 2.0).round() / 2.0
+}
 
 pub const RDF_OPTIONS: &[(&str, &str)] = &[
     ("off", "Off (default, realistic)"),
@@ -199,5 +186,14 @@ mod tests {
             serde_json::from_str(r#"{"name":"A","cid":"1234567","coast_choice":"2"}"#).unwrap();
         assert_eq!(c.coast_choice, "2");
         assert_eq!(c.land_choice, "1");
+    }
+
+    #[test]
+    fn font_size_value_clamps_and_rounds_to_half_steps() {
+        assert_eq!(font_size_value("6.5"), 6.5);
+        assert_eq!(font_size_value("6.3"), 6.5);
+        assert_eq!(font_size_value("-1"), 0.0);
+        assert_eq!(font_size_value("16"), 15.0);
+        assert_eq!(font_size_value("small"), 3.5);
     }
 }

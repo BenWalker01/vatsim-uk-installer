@@ -250,23 +250,25 @@ impl App {
         config: &mut Config,
         textures: &mut std::collections::HashMap<String, egui::TextureHandle>,
     ) {
-        let font_size = config::FONT_OPTIONS
-            .iter()
-            .find(|option| option.0 == config.font_size)
-            .map_or("", |option| option.1);
+        let mut font_size = config::font_size_value(&config.font_size);
 
         egui::Grid::new("appearance")
             .num_columns(2)
             .spacing([16.0, 12.0])
             .show(ui, |ui| {
                 ui.label("Text size");
-                egui::ComboBox::from_id_salt("font_size")
-                    .selected_text(font_size)
-                    .show_ui(ui, |ui| {
-                        for (key, label, _) in config::FONT_OPTIONS {
-                            ui.selectable_value(&mut config.font_size, key.to_string(), *label);
-                        }
-                    });
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut font_size)
+                            .range(0.0..=15.0)
+                            .speed(0.5)
+                            .fixed_decimals(1),
+                    )
+                    .changed()
+                {
+                    font_size = (font_size * 2.0).round() / 2.0;
+                    config.font_size = format!("{font_size:.1}");
+                }
                 ui.end_row();
 
                 Self::choice_ui(
@@ -288,7 +290,7 @@ impl App {
             });
         ui.add_space(8.0);
         ui.weak(
-            "Text size applies to metar, chat and list headers. Open a colour list and hover an entry to preview it.",
+            "Text size applies to list columns. Restart EuroScope after saving to see the change. Open a colour list and hover an entry to preview it.",
         );
     }
 

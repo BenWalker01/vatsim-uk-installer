@@ -37,13 +37,14 @@ pub fn apply(cfg: &Config, root: &Path, shared: &download::Shared) -> anyhow::Re
             note(patch_plugins(p, &cfg.cpdlc), p);
         } else if name.starts_with("UK") && ends_with_ci(&name, ".ese") {
             note(replace_in(p, "EXAMPLE", &cfg.initials), p);
-        } else if name == "SIMBOLOGY.txt" {
-            if let Some((_, _, size)) = FONT_OPTIONS
-                .iter()
-                .find(|o| o.0 == cfg.font_size && !o.2.is_empty())
-            {
-                note(patch_symbology_font(p, size), p);
-            }
+        } else if cfg.font_size != "default"
+            && name.starts_with("Lists")
+            && ends_with_ci(&name, ".txt")
+            && p.parent()
+                .is_some_and(|d| d.ends_with(Path::new("Data").join("Settings")))
+        {
+            let size = format!("{:.1}", font_size_value(&cfg.font_size));
+            note(patch_list_font(p, &size), p);
         } else if name.ends_with("Profiles.txt") {
             note(
                 replace_in(
@@ -120,18 +121,23 @@ mod tests {
     fn apply_patches_prf_and_discord() {
         let dir = std::env::temp_dir().join(format!("ukcfg-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("Data").join("Plugin")).unwrap();
+        let settings = dir.join("Data").join("Settings");
+        std::fs::create_dir_all(&settings).unwrap();
         let prf = dir.join("a.prf");
         std::fs::write(
             &prf,
             "Plugins\tPlugin1\tx.dll\nLastSession\tpassword\told\n",
         )
         .unwrap();
+        let list = settings.join("Lists_SMR_RECAT.txt");
+        std::fs::write(&list, "m_Column:SPad:7:1:19:29:29:1::::4:0.0\n").unwrap();
         let cfg = Config {
             name: "N".into(),
             initials: "AB".into(),
             cid: "1234567".into(),
             password: "pw".into(),
             discord_presence: "y".into(),
+            font_size: "6.5".into(),
             ..Default::default()
         };
         apply(&cfg, &dir, &download::Shared::default()).unwrap();
@@ -139,6 +145,9 @@ mod tests {
         assert!(out.contains("LastSession\tcallsign\tAB_OBS"));
         assert!(!out.contains("\told"));
         assert!(out.contains("Plugins\tPlugin2\t\\Data\\Plugin\\DiscordEuroscope.dll"));
+        assert!(std::fs::read_to_string(&list)
+            .unwrap()
+            .contains("m_Column:SPad:7:1:19:29:29:1::::4:6.5"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

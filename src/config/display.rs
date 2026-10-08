@@ -108,23 +108,24 @@ pub(super) fn patch_sct(path: &Path, cfg: &Config) -> anyhow::Result<()> {
     write_text(path, &(lines.join("\n") + "\n"))
 }
 
-/// Set the text size (4th `:`-separated field) of the font-related SIMBOLOGY.txt entries.
-pub(super) fn patch_symbology_font(path: &Path, size: &str) -> anyhow::Result<()> {
+/// Set each list column's text size (the final field of each `m_Column` line).
+pub(super) fn patch_list_font(path: &Path, size: &str) -> anyhow::Result<()> {
     let text = read_text(path)?;
     let mut changed = false;
     let lines: Vec<String> = text
         .lines()
-        .map(|l| {
-            let mut parts: Vec<&str> = l.split(':').collect();
-            if parts.len() >= 4
-                && SYMBOLOGY_FONT_ENTRIES.contains(&format!("{}:{}", parts[0], parts[1]).as_str())
-                && parts[3] != size
+        .map(|line| {
+            let mut parts: Vec<&str> = line.split(':').collect();
+            if parts.first() == Some(&"m_Column")
+                && parts.len() > 1
+                && parts.last().is_some_and(|value| value.parse::<f32>().is_ok())
+                && parts.last() != Some(&size)
             {
-                parts[3] = size;
+                *parts.last_mut().unwrap() = size;
                 changed = true;
                 return parts.join(":");
             }
-            l.to_string()
+            line.to_string()
         })
         .collect();
     if changed {
@@ -220,14 +221,22 @@ mod tests {
     }
 
     #[test]
-    fn font_size_patches_only_font_entries() {
-        let dir = std::env::temp_dir().join(format!("ukfont-{}", std::process::id()));
+    fn list_font_patches_only_m_column_size_fields() {
+        let dir = std::env::temp_dir().join(format!("uklistfont-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let f = dir.join("SIMBOLOGY.txt");
-        std::fs::write(&f, "Metar:normal:Arial:3.5:1\nOther:foo:Arial:3.5:1\n").unwrap();
-        patch_symbology_font(&f, "4.0").unwrap();
-        let out = std::fs::read_to_string(&f).unwrap();
-        assert!(out.contains("Metar:normal:Arial:4.0:1") && out.contains("Other:foo:Arial:3.5:1"));
+        let file = dir.join("Lists_SMR_RECAT.txt");
+        std::fs::write(
+            &file,
+            "m_Column:SPad:7:1:19:29:29:1::::4:0.0\nm_Column:Std:5:1:110:9008:9007:1:UK Controller Plugin:UK Controller Plugin:UK Controller Plugin:4:15.0\nOther:unchanged\n",
+        )
+        .unwrap();
+
+        patch_list_font(&file, "6.5").unwrap();
+
+        assert_eq!(
+            read_text(&file).unwrap(),
+            "m_Column:SPad:7:1:19:29:29:1::::4:6.5\nm_Column:Std:5:1:110:9008:9007:1:UK Controller Plugin:UK Controller Plugin:UK Controller Plugin:4:6.5\nOther:unchanged\n"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
