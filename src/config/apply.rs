@@ -145,9 +145,11 @@ mod tests {
         assert!(out.contains("LastSession\tcallsign\tAB_OBS"));
         assert!(!out.contains("\told"));
         assert!(out.contains("Plugins\tPlugin2\t\\Data\\Plugin\\DiscordEuroscope.dll"));
-        assert!(std::fs::read_to_string(&list)
-            .unwrap()
-            .contains("m_Column:SPad:7:1:19:29:29:1::::4:6.5"));
+        assert!(
+            std::fs::read_to_string(&list)
+                .unwrap()
+                .contains("m_Column:SPad:7:1:19:29:29:1::::4:6.5")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

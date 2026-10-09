@@ -118,7 +118,9 @@ pub(super) fn patch_list_font(path: &Path, size: &str) -> anyhow::Result<()> {
             let mut parts: Vec<&str> = line.split(':').collect();
             if parts.first() == Some(&"m_Column")
                 && parts.len() > 1
-                && parts.last().is_some_and(|value| value.parse::<f32>().is_ok())
+                && parts
+                    .last()
+                    .is_some_and(|value| value.parse::<f32>().is_ok())
                 && parts.last() != Some(&size)
             {
                 *parts.last_mut().unwrap() = size;

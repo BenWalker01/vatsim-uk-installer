@@ -97,7 +97,7 @@ impl App {
         ui.separator();
         ui.heading("Navigation data");
         ui.label(
-            "Fresh GNG navdata is not included with the controller pack. Download and import it after each pack update.",
+            "AeroNav navdata is not included with the controller pack. Compare its AIRAC cycle after importing; AeroNav may not have published a new cycle yet.",
         );
 
         let Some(dir) = self.pack_dir() else {
@@ -113,30 +113,112 @@ impl App {
                 format!("Navdata files missing: {}", missing.join(", ")),
             );
         }
+        match pack::navdata::airac_cycles(&dir) {
+            Ok((file_count, cycles)) if cycles.is_empty() => {
+                ui.weak(format!(
+                    "No AIRAC cycle found in the {file_count} AeroNav files in Datafiles."
+                ));
+            }
+            Ok((file_count, cycles)) => {
+                let mut by_cycle = std::collections::BTreeMap::new();
+                for (name, cycle) in &cycles {
+                    by_cycle
+                        .entry(*cycle)
+                        .or_insert_with(Vec::new)
+                        .push(name.as_str());
+                }
+                for (cycle, files) in by_cycle {
+                    ui.label(format!("AIRAC {cycle}: {}", files.join(", ")));
+                }
+                if let Some(version) = self.state.pack_version {
+                    if cycles
+                        .iter()
+                        .all(|(_, cycle)| pack::navdata::matches_pack_cycle(*cycle, version))
+                    {
+                        ui.label(format!(
+                            "All detected cycles match controller pack {version}."
+                        ));
+                    } else {
+                        ui.colored_label(
+                            ui.visuals().warn_fg_color,
+                            format!(
+                                "One or more navdata files differ from controller pack {version}. You may need to update the navdata from AeroNav."
+                            ),
+                        );
+                    }
+                }
+                let unlabelled = file_count.saturating_sub(cycles.len());
+                if unlabelled > 0 {
+                    ui.weak(format!(
+                        "No AIRAC cycle found in {unlabelled} of {file_count} AeroNav files."
+                    ));
+                }
+            }
+            Err(error) => {
+                ui.weak(format!("Could not check navdata AIRAC cycles: {error}"));
+            }
+        }
 
         ui.horizontal(|ui| {
-            ui.hyperlink_to("Open AeroNav GNG downloads", pack::navdata::AERONAV_URL);
+            ui.hyperlink_to("Open AeroNav downloads", pack::navdata::AERONAV_URL);
             if ui
                 .add_enabled(
                     self.job.is_none() && dir.is_dir(),
-                    egui::Button::new("Select downloaded ZIP..."),
+                    egui::Button::new("Select downloaded archive..."),
                 )
                 .clicked()
             {
-                let dialog = rfd::FileDialog::new().add_filter("ZIP archives", &["zip"]);
+                let dialog = rfd::FileDialog::new()
+                    .add_filter("Navdata archives", &["zip", "7z"])
+                    .add_filter("ZIP archives", &["zip"])
+                    .add_filter("7z archives", &["7z"]);
                 let dialog = match dirs::download_dir().filter(|path| path.is_dir()) {
                     Some(downloads) => dialog.set_directory(downloads),
                     None => dialog,
                 };
                 if let Some(zip_path) = dialog.pick_file() {
+                    self.navdata_archive_after_import = Some(zip_path.clone());
                     self.start_job(move |worker| {
-                        crate::common::download::set_message(worker, "Importing GNG navdata");
-                        pack::navdata::import_gng_zip(&zip_path, &dir)
+                        crate::common::download::set_message(worker, "Importing AeroNav navdata");
+                        pack::navdata::import_gng_archive(&zip_path, &dir)
                     });
                     self.status.clear();
                 }
             }
         });
+    }
+
+    pub(super) fn navdata_archive_delete_prompt(&mut self, ui: &mut egui::Ui) {
+        let Some(archive_path) = self.navdata_archive_delete_prompt.clone() else {
+            return;
+        };
+        let mut delete = false;
+        let mut keep = false;
+        let modal =
+            egui::Modal::new(egui::Id::new("navdata_archive_delete_prompt")).show(ui.ctx(), |ui| {
+                ui.set_width(400.0);
+                ui.heading("Navdata import complete");
+                ui.label("Would you like to delete the downloaded archive?");
+                ui.weak(archive_path.display().to_string());
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    delete = ui.button("Delete archive").clicked();
+                    keep = ui.button("Keep archive").clicked();
+                });
+            });
+
+        if delete {
+            match std::fs::remove_file(&archive_path) {
+                Ok(()) => self.status = "Navdata imported; downloaded archive deleted.".into(),
+                Err(error) => {
+                    self.status = format!("Navdata imported, but could not delete archive: {error}")
+                }
+            }
+            self.navdata_archive_delete_prompt = None;
+        } else if keep || modal.should_close() {
+            self.status = "Navdata imported; downloaded archive kept.".into();
+            self.navdata_archive_delete_prompt = None;
+        }
     }
 
     pub(super) fn updates_ui(&mut self, ui: &mut egui::Ui) {

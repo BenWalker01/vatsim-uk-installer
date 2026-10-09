@@ -34,6 +34,7 @@ impl eframe::App for App {
         self.sidebar(ui, busy);
         self.footer(ui, busy);
         self.central_panel(ui, busy);
+        self.navdata_archive_delete_prompt(ui);
     }
 }
 

@@ -71,6 +71,8 @@ pub struct App {
     checked: Option<(&'static str, std::time::Instant)>,
     status: String,
     job: Option<Job>,
+    navdata_archive_after_import: Option<std::path::PathBuf>,
+    navdata_archive_delete_prompt: Option<std::path::PathBuf>,
     config: Config,
     capturing_asel: bool,
     config_tab: ConfigTab,
@@ -202,6 +204,8 @@ impl App {
             checked: None,
             status: String::new(),
             job: None,
+            navdata_archive_after_import: None,
+            navdata_archive_delete_prompt: None,
             config: Config::default(),
             capturing_asel: false,
             config_tab: ConfigTab::Details,
@@ -269,6 +273,11 @@ impl App {
             let job = self.job.take().unwrap();
             let result = job.handle.join();
             let succeeded = matches!(result, Ok(Ok(())));
+            if let Some(archive_path) = self.navdata_archive_after_import.take() {
+                if succeeded {
+                    self.navdata_archive_delete_prompt = Some(archive_path);
+                }
+            }
             self.status = match result {
                 Ok(Ok(())) => String::new(),
                 Ok(Err(e)) => format!("Failed: {e}"),
