@@ -3,7 +3,7 @@
 use std::{
     fmt,
     io::Read,
-    path::{Path, PathBuf},
+    path::{Path},
 };
 
 pub const AERONAV_URL: &str = "https://files.aero-nav.com/EGXX";
@@ -205,7 +205,8 @@ fn archive_basename(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    use std::{io::Write, path::PathBuf};
+
 
     fn test_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("vuk-AeroNav-{name}-{}", std::process::id()))
