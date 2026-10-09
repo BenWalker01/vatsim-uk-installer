@@ -88,7 +88,55 @@ impl App {
             ui.label(format!("Location: {}", dir.display()));
         }
         self.updates_ui(ui);
+        self.navdata_ui(ui);
         self.progress_ui(ui, false);
+    }
+
+    fn navdata_ui(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(18.0);
+        ui.separator();
+        ui.heading("Navigation data");
+        ui.label(
+            "Fresh GNG navdata is not included with the controller pack. Download and import it after each pack update.",
+        );
+
+        let Some(dir) = self.pack_dir() else {
+            ui.weak("Install the controller pack before importing navdata.");
+            return;
+        };
+        let missing = pack::navdata::missing_files(&dir);
+        if missing.is_empty() {
+            ui.label("All six navdata files are present.");
+        } else {
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                format!("Navdata files missing: {}", missing.join(", ")),
+            );
+        }
+
+        ui.horizontal(|ui| {
+            ui.hyperlink_to("Open AeroNav GNG downloads", pack::navdata::AERONAV_URL);
+            if ui
+                .add_enabled(
+                    self.job.is_none() && dir.is_dir(),
+                    egui::Button::new("Select downloaded ZIP..."),
+                )
+                .clicked()
+            {
+                let dialog = rfd::FileDialog::new().add_filter("ZIP archives", &["zip"]);
+                let dialog = match dirs::download_dir().filter(|path| path.is_dir()) {
+                    Some(downloads) => dialog.set_directory(downloads),
+                    None => dialog,
+                };
+                if let Some(zip_path) = dialog.pick_file() {
+                    self.start_job(move |worker| {
+                        crate::common::download::set_message(worker, "Importing GNG navdata");
+                        pack::navdata::import_gng_zip(&zip_path, &dir)
+                    });
+                    self.status.clear();
+                }
+            }
+        });
     }
 
     pub(super) fn updates_ui(&mut self, ui: &mut egui::Ui) {

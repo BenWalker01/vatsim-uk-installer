@@ -3,6 +3,7 @@
 pub mod backup;
 pub mod layout;
 pub mod manifest;
+pub mod navdata;
 pub mod staging;
 pub mod updater;
 
